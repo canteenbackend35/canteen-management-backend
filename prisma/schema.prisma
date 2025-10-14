@@ -1,0 +1,89 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  customer_id Int     @id @default(autoincrement())
+  phone_no    String  @unique
+  course      String?
+  college     String?
+  name        String
+  orders      Order[]
+}
+
+model Store {
+  store_id        Int         @id @default(autoincrement())
+  store_name      String
+  phone_no        String      @unique
+  status          StoreStatus @default(OPEN)
+  payment_details String?
+  menu_items      MenuItem[]
+  orders          Order[]
+}
+
+model MenuItem {
+  menu_item_id Int         @id @default(autoincrement())
+  store_id     Int
+  name         String
+  price        Float
+  status       ItemStaus @default(AVAILABLE)
+  
+  store        Store       @relation(fields: [store_id], references: [store_id])
+  order_items  OrderItem[]
+}
+
+model Order {
+  order_id     Int         @id @default(autoincrement())
+  customer_id  Int
+  store_id     Int
+  total_price  Float
+  payment_id   String?
+  order_otp    String
+  order_status OrderStatus @default(PENDING)
+  order_date   DateTime    @default(now())
+
+  customer Customer    @relation(fields: [customer_id], references: [customer_id])
+  store    Store       @relation(fields: [store_id], references: [store_id])
+  items    OrderItem[]
+}
+
+model OrderItem {
+  order_id     Int
+  menu_item_id Int
+  quantity     Int
+  
+  order     Order    @relation(fields: [order_id], references: [order_id])
+  menu_item MenuItem @relation(fields: [menu_item_id], references: [menu_item_id])
+
+  @@id([order_id, menu_item_id])
+}
+
+enum StoreStatus {
+  OPEN
+  CLOSED
+}
+
+enum ItemStaus{
+  AVAILABLE
+  OUT_OF_STOCK
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  ON_THE_WAY
+  DELIVERED
+  CANCELLED
+}
