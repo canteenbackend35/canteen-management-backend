@@ -1,11 +1,63 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
+import redisClient from "../config/redisClient.js";
+import { generateOtp } from "../utils/otp_generate.js";
 
 //send otp endpoint controller - to be completed by ayush
 
 //will generate and send the otp via SMS
 //will store the OTP and the corresponding phone number in the redis for checking later and set its expiry to 2 mins
 //send message to the frontend {phoneNo:"XXXXX-XXXXX", message: "OTP successfully sent!"}
+
+export const sendOtp = async (req: Request, res: Response) => {
+  try {
+    const { phoneNo } = req.body;
+
+    // validate phone number
+    if (!phoneNo || !/^[0-9]{10}$/.test(phoneNo)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid phone number" });
+    }
+
+    // generate otp
+    const otp = generateOtp();
+    if (!otp || typeof otp !== "string" || otp.length === 0) {
+      console.log("❌ OTP generation failed:", otp);
+      return res
+        .status(500)
+        .json({ success: false, message: "OTP generation failed" });
+    }
+    console.log("🔢 OTP generated:", otp);
+
+    // store in redis
+    const redisResponse = await redisClient.set(
+      `phoneNo:${String(phoneNo)}`,
+      String(otp)
+    );
+
+    if (!redisResponse) {
+      console.log("❌ Failed to insert OTP into Redis");
+    } else {
+      console.log("🧠 OTP inserted into Redis successfully");
+    }
+
+    // send otp via sms (simulate for now)
+    const smsResponse = await sendOtpSms({ otp });
+    if (!smsResponse) {
+      console.log("❌ Failed to send OTP SMS");
+    } else {
+      console.log("📤 OTP SMS sent successfully");
+    }
+
+    return res.status(200).json({ message: "OTP sent successfully" });
+  } catch (error) {
+    console.error("🔥 sendOtp failed:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error while sending OTP" });
+  }
+};
 
 //validate-otp and identify new or old user endpoint controller - to be completed by vishal
 
