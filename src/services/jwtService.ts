@@ -1,0 +1,57 @@
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+dotenv.config();
+
+// -------------------
+// Types
+// -------------------
+export interface JwtPayload {
+  customer_id: number;
+  phone_no: string;
+  course: string | null;
+  college: string | null;
+  name: string;
+}
+
+export interface JwtPayload {
+  name: string;
+}
+
+// -------------------
+// Configs
+// -------------------
+const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET!;
+const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET!;
+const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN!;
+const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN!;
+
+// -------------------
+// Token generation
+// -------------------
+function signToken(payload: JwtPayload, secret: string, expiresIn: string) {
+  return jwt.sign(payload, secret, { expiresIn });
+}
+
+export const generateAccessToken = (payload: JwtPayload) =>
+  signToken(payload, ACCESS_TOKEN_SECRET, ACCESS_TOKEN_EXPIRES_IN);
+
+export const generateRefreshToken = (payload: JwtPayload) =>
+  signToken(payload, REFRESH_TOKEN_SECRET, REFRESH_TOKEN_EXPIRES_IN);
+
+// -------------------
+// Token verification
+// -------------------
+function verifyToken(token: string, secret: string): JwtPayload | null {
+  try {
+    return jwt.verify(token, secret) as JwtPayload;
+  } catch (err) {
+    console.error("Invalid token");
+    return null;
+  }
+}
+
+export const verifyAccessToken = (token: string) =>
+  verifyToken(token, ACCESS_TOKEN_SECRET);
+
+export const verifyRefreshToken = (token: string) =>
+  verifyToken(token, REFRESH_TOKEN_SECRET);

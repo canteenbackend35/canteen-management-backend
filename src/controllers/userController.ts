@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
+import { getOTP, storeOTP } from "../services/redisService.js";
+import { generateToken } from "../services/jwtService.js";
 
 //send otp endpoint controller - to be completed by ayush
 
@@ -8,6 +10,66 @@ import prisma from "../config/prisma_client.js";
 //send message to the frontend {phoneNo:"XXXXX-XXXXX", message: "OTP successfully sent!"}
 
 //validate-otp and identify new or old user endpoint controller - to be completed by vishal
+
+export const validateOtp = async (req: Request, res: Response) => {
+  try {
+    const { phoneNo, otp } = req.body;
+
+    // 1️⃣ Input validation
+    if (!phoneNo || !otp) {
+      return res
+        .status(400)
+        .json({ message: "Phone number and OTP are required." });
+    }
+
+    // 2️⃣ Check Redis
+    const cachedOtp = await getOTP(phoneNo);
+
+    if (!cachedOtp) {
+      return res.status(400).json({
+        phoneNo,
+        message: "You took too long! OTP expired",
+      });
+    }
+
+    // 3️⃣ Compare OTP
+    if (cachedOtp !== otp) {
+      return res.status(400).json({
+        phoneNo,
+        message: "OTP does not match!",
+      });
+    }
+
+    // 4️⃣ Check DB for existing user (using Prisma)
+    const user = await prisma.customer.findUnique({
+      where: {
+        phone_no: phoneNo,
+      },
+    });
+
+    if (!user) {
+      // New user
+      return res.status(200).json({
+        phoneNo,
+        message: "OTP matched successfully!!",
+        user_type: "new user",
+      });
+    }
+
+    // 5️⃣ Old user → generate JWT tokens
+    const tokens = generateToken(user);
+
+    return res.status(200).json({
+      phoneNo,
+      message: "OTP matched successfully!!",
+      user_type: "old user",
+      tokens,
+    });
+  } catch (err) {
+    console.error("Error in validateOtp:", err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
 
 //this endpoint will take the user otp and phone number from the frontend and check wether the otp matches in the redis!(the above endpoint will store the otp and phone no in the redis)
 //if his number cannot be found in the redis db then he the otp has expired and send the appropriate response to the frontend: {phoneNo:"XXXXX-XXXXX", message: "You took too long! OTP expired"}
