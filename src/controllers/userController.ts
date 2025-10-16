@@ -1,7 +1,10 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
 import { getOTP, storeOTP } from "../services/redisService.js";
-import { generateToken } from "../services/jwtService.js";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+} from "../services/jwtService.js";
 
 //send otp endpoint controller - to be completed by ayush
 
@@ -15,40 +18,28 @@ export const validateOtp = async (req: Request, res: Response) => {
   try {
     const { phoneNo, otp } = req.body;
 
-    // 1️⃣ Input validation
     if (!phoneNo || !otp) {
       return res
         .status(400)
         .json({ message: "Phone number and OTP are required." });
     }
 
-    // 2️⃣ Check Redis
     const cachedOtp = await getOTP(phoneNo);
 
     if (!cachedOtp) {
-      return res.status(400).json({
-        phoneNo,
-        message: "You took too long! OTP expired",
-      });
+      return res.status(400).json({ phoneNo, message: "OTP expired" });
     }
 
-    // 3️⃣ Compare OTP
     if (cachedOtp !== otp) {
-      return res.status(400).json({
-        phoneNo,
-        message: "OTP does not match!",
-      });
+      return res.status(400).json({ phoneNo, message: "OTP does not match!" });
     }
 
-    // 4️⃣ Check DB for existing user (using Prisma)
     const user = await prisma.customer.findUnique({
-      where: {
-        phone_no: phoneNo,
-      },
+      where: { phone_no: phoneNo },
     });
 
     if (!user) {
-      // New user
+      // New user → no tokens yet
       return res.status(200).json({
         phoneNo,
         message: "OTP matched successfully!!",
@@ -56,14 +47,17 @@ export const validateOtp = async (req: Request, res: Response) => {
       });
     }
 
-    // 5️⃣ Old user → generate JWT tokens
-    const tokens = generateToken(user);
+    // ✅ Old user → generate JWT tokens
+    const tokens = {
+      accessToken: generateAccessToken(user), // short-lived token
+      refreshToken: generateRefreshToken(user), // long-lived token
+    };
 
     return res.status(200).json({
       phoneNo,
       message: "OTP matched successfully!!",
       user_type: "old user",
-      tokens,
+      tokens, // { accessToken, refreshToken }
     });
   } catch (err) {
     console.error("Error in validateOtp:", err);
