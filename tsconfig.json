@@ -19,8 +19,8 @@
     "declarationMap": true,
 
     // Stricter Typechecking Options
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    // "noUncheckedIndexedAccess": true,
+    // "exactOptionalPropertyTypes": true,
 
     // Style Options — optional stricter flags you can enable later
     // "noImplicitReturns": true,
@@ -31,7 +31,7 @@
     // "noPropertyAccessFromIndexSignature": true,
 
     // Recommended Options
-    "strict": true,
+    "strict": false,
     // "jsx": "react-jsx",           // ❌ Not needed for backend
     // "verbatimModuleSyntax": false, // ❌ Not needed, default behavior is fine
     // "isolatedModules": true,      // ⚠️ Optional; can cause issues with tsx sometimes

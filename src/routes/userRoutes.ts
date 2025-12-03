@@ -1,11 +1,11 @@
 import express from "express";
-import { getUserOrders, validateOtp } from "../controllers/userController.js";
+import { getUserOrders, loginUser } from "../controllers/userController.js";
+import { auth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// router.post("/signup", signupUser);
-// router.post("/login", loginUser);
-router.get("/:userId/orders", getUserOrders);
-router.post("/validateOtp", validateOtp);
+router.post("/login", loginUser);
+// router.get("/signup", signUpUser);
+router.get("/orders", auth, getUserOrders);
 
 export default router;
