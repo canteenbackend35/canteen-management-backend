@@ -1,92 +1,63 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
-import { getOTP, storeOTP } from "../services/redisService.js";
-import {
-  generateAccessToken,
-  generateRefreshToken,
-} from "../services/jwtService.js";
+import { supabase } from "../config/supabaseClient.js";
 
-//send otp endpoint controller - to be completed by ayush
-
-//will generate and send the otp via SMS
-//will store the OTP and the corresponding phone number in the redis for checking later and set its expiry to 2 mins
-//send message to the frontend {phoneNo:"XXXXX-XXXXX", message: "OTP successfully sent!"}
-
-//validate-otp and identify new or old user endpoint controller - to be completed by vishal
-
-export const validateOtp = async (req: Request, res: Response) => {
+// Get Orders of User
+export const loginUser = async (req: Request, res: Response) => {
   try {
-    const { phoneNo, otp } = req.body;
+    const { email } = req.body;
+    console.log(email);
 
-    if (!phoneNo || !otp) {
-      return res
-        .status(400)
-        .json({ message: "Phone number and OTP are required." });
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
     }
 
-    const cachedOtp = await getOTP(phoneNo);
-
-    if (!cachedOtp) {
-      return res.status(400).json({ phoneNo, message: "OTP expired" });
-    }
-
-    if (cachedOtp !== otp) {
-      return res.status(400).json({ phoneNo, message: "OTP does not match!" });
-    }
-
-    const user = await prisma.customer.findUnique({
-      where: { phone_no: phoneNo },
+    const { data, error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: "cc://auth/callback",
+      },
     });
 
-    if (!user) {
-      // New user → no tokens yet
-      return res.status(200).json({
-        phoneNo,
-        message: "OTP matched successfully!!",
-        user_type: "new user",
-      });
+    if (error) {
+      return res.status(400).json({ error: error.message });
     }
 
-    // ✅ Old user → generate JWT tokens
-    const tokens = {
-      accessToken: generateAccessToken(user), // short-lived token
-      refreshToken: generateRefreshToken(user), // long-lived token
-    };
-
-    return res.status(200).json({
-      phoneNo,
-      message: "OTP matched successfully!!",
-      user_type: "old user",
-      tokens, // { accessToken, refreshToken }
-    });
+    return res.status(200).json({ message: "Magic link sent to email" });
   } catch (err) {
-    console.error("Error in validateOtp:", err);
-    res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({
+      error: "Failed to send magic link",
+      details: err,
+    });
   }
 };
 
-//this endpoint will take the user otp and phone number from the frontend and check wether the otp matches in the redis!(the above endpoint will store the otp and phone no in the redis)
-//if his number cannot be found in the redis db then he the otp has expired and send the appropriate response to the frontend: {phoneNo:"XXXXX-XXXXX", message: "You took too long! OTP expired"}
-//if his otp does not match then also send an appropriate response to the frontend: {phoneNo:"XXXXX-XXXXX", message: "OTP does not match!"}
-//if it matches then it will check wether the user already exists in the db
-//if new user it will send the message to the frontend that it is a new user with his phoneNo verified and redirect him to signup/form-data page: {phoneNo:"XXXXX-XXXXX", message: "OTP matched successfully!!", user_type: "new user"}
-//if old user then backend will generate his jwt tokens (access + refresh) and send it to the frontend so that the frontend can then redirect him to his dashboard: {phoneNo:"XXXXX-XXXXX", message: "OTP matched successfully!!", user_type: "old user", tokens:{access: "xxxxxxxxxxxxxxx", refresh: "xxxxxxxxxxxxxxxxxx"}}
-//remember to handle checkpoints!
-
-//handle new-user data endpoint controller - to be assigned yet!
-
-//will get all the user details along with the phone number we send in the above endpoint!
-//and store it in supabase database
-//and send his tokens along with a success message!
-
-// Get Orders of User
 export const getUserOrders = async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.userId!, 10);
-    const orders = await prisma.order.findMany({
-      where: { customer_id: userId },
-      include: { items: true },
+    const email = req.email;
+
+    console.log("Fetching orders for email:", email);
+
+    const customer = await prisma.customer.findUnique({
+      where: { email },
     });
+
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { customer_id: customer.customer_id },
+      include: {
+        items: {
+          include: {
+            menu_item: true,
+          },
+        },
+        store: true,
+      },
+    });
+
     res.json(orders);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch orders", details: err });
