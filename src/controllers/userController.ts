@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
 import redisClient from "../config/redisClient.js";
-import { generateOtp } from "../utils/otp_generate.js";
+import OTPWidget from "../config/msg91_client.js";
 
 //send otp endpoint controller - to be completed by ayush
 
@@ -12,52 +12,88 @@ import { generateOtp } from "../utils/otp_generate.js";
 export const sendOtp = async (req: Request, res: Response) => {
   try {
     const { phoneNo } = req.body;
+    console.log("📥 Incoming sendOtp request for:", phoneNo);
 
-    // validate phone number
+    // 1. Validate phone number
     if (!phoneNo || !/^[0-9]{10}$/.test(phoneNo)) {
+      console.log("❌ Invalid phone number");
       return res
         .status(400)
-        .json({ success: false, message: "Invalid phone number" });
+        .json({ success: false, UImessage: "Invalid phone number" });
     }
 
-    // generate otp
-    const otp = generateOtp();
-    if (!otp || typeof otp !== "string" || otp.length === 0) {
-      console.log("❌ OTP generation failed:", otp);
-      return res
-        .status(500)
-        .json({ success: false, message: "OTP generation failed" });
+    const redisKey = `otp:attempts:${phoneNo}`;
+
+    // 2. Check current attempt count
+    const attemptCountStr = await redisClient.get(redisKey);
+    const attemptCount = attemptCountStr ? Number(attemptCountStr) : 0;
+
+    console.log(`🔢 Current OTP attempts for ${phoneNo}:`, attemptCount);
+
+    // 3. If attempts exceeded
+    if (attemptCount >= 3) {
+      const ttlSeconds = await redisClient.ttl(redisKey);
+
+      console.log(`⏳ TTL remaining (seconds):`, ttlSeconds);
+
+      const retryAt = new Date(Date.now() + ttlSeconds * 1000);
+
+      console.log(`🚫 OTP blocked until:`, retryAt);
+
+      return res.status(429).json({
+        success: false,
+        UImessage: `You have used up all of your three attempts to receive OTP. Try again after ${retryAt.toLocaleString()}.`,
+      });
     }
-    console.log("🔢 OTP generated:", otp);
 
-    // store in redis
-    const redisResponse = await redisClient.set(
-      `phoneNo:${String(phoneNo)}`,
-      String(otp)
-    );
+    // 4. Increment attempt count
+    const newAttemptCount = attemptCount + 1;
 
-    if (!redisResponse) {
-      console.log("❌ Failed to insert OTP into Redis");
+    if (attemptCount === 0) {
+      // First attempt → set value with 24h expiry
+      await redisClient.set(redisKey, String(newAttemptCount), {
+        EX: 60 * 60 * 24,
+      });
+      console.log("🧠 First OTP attempt stored, TTL set to 24 hours");
     } else {
-      console.log("🧠 OTP inserted into Redis successfully");
+      // Subsequent attempts → just increment
+      await redisClient.incr(redisKey);
+      console.log("🧠 OTP attempt incremented");
     }
 
-    // send otp via sms (simulate for now)
-    const smsResponse = await sendOtpSms({ otp });
-    if (!smsResponse) {
-      console.log("❌ Failed to send OTP SMS");
-    } else {
-      console.log("📤 OTP SMS sent successfully");
+    // 5. Send OTP using MSG91
+    console.log("📤 Sending OTP via MSG91...");
+    const sendOtpResponse:any = await OTPWidget.sendOTP({
+      identifier: phoneNo,
+    });
+
+    console.log("📨 MSG91 response:", sendOtpResponse);
+
+    if (sendOtpResponse.type === "error") {
+      console.log("❌ MSG91 failed to send OTP");
+      return res.status(400).json({
+        success: false,
+        UImessage: sendOtpResponse.message,
+      });
     }
 
-    return res.status(200).json({ message: "OTP sent successfully" });
+    console.log("✅ OTP sent successfully");
+
+    return res.status(200).json({
+      success: true,
+      UImessage: "OTP sent successfully",
+      reqId: sendOtpResponse.message, // useful for verify API
+      phoneNo,
+    });
   } catch (error) {
     console.error("🔥 sendOtp failed:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Server error while sending OTP" });
+    return res.status(500).json({
+      success: false,
+      UImessage: "Server error while sending OTP",
+    });
   }
 };
+
 
 //validate-otp and identify new or old user endpoint controller - to be completed by vishal
 
