@@ -16,6 +16,7 @@ datasource db {
 model Customer {
   customer_id Int     @id @default(autoincrement())
   phone_no    String  @unique
+  email       String  @unique
   course      String?
   college     String?
   name        String

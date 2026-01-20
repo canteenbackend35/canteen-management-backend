@@ -24,12 +24,16 @@
   "dependencies": {
     "@msg91comm/sendotp-sdk": "^1.0.1",
     "@prisma/client": "^6.16.3",
+    "@supabase/supabase-js": "^2.84.0",
+    "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "redis": "^5.8.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.7.2",
     "cors": "^2.8.5",
     "nodemon": "^3.1.10",
