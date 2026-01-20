@@ -1,95 +1,117 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
-import { supabase } from "../config/supabaseClient.js";
-import { Global } from "../config/global.js";
+import redisClient from "../config/redisClient.js";
+import OTPWidget from "../config/msg91_client.js";
 
-// Login User
-export const loginUser = async (req: Request, res: Response) => {
+//send otp endpoint controller - to be completed by ayush
+
+//will generate and send the otp via SMS
+//will store the OTP and the corresponding phone number in the redis for checking later and set its expiry to 2 mins
+//send message to the frontend {phoneNo:"XXXXX-XXXXX", message: "OTP successfully sent!"}
+
+export const sendOtp = async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
+    const { phoneNo } = req.body;
+    console.log("📥 Incoming sendOtp request for:", phoneNo);
 
-    if (!email) return res.status(400).json({ error: "Email is required" });
-
-    // Check in Prisma DB
-    const userExists = await prisma.customer.findUnique({
-      where: { email },
-    });
-
-    if (!userExists) {
-      return res.status(404).json({ error: "User not found" });
+    // 1. Validate phone number
+    if (!phoneNo || !/^[0-9]{10}$/.test(phoneNo)) {
+      console.log("❌ Invalid phone number");
+      return res
+        .status(400)
+        .json({ success: false, UImessage: "Invalid phone number" });
     }
 
-    // Now send Supabase Magic Link
-    const { data, error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: Global.emailRedirectTo,
-      },
-    });
+    const redisKey = `otp:attempts:${phoneNo}`;
 
-    if (error) return res.status(400).json({ error: error.message });
+    // 2. Check current attempt count
+    const attemptCountStr = await redisClient.get(redisKey);
+    const attemptCount = attemptCountStr ? Number(attemptCountStr) : 0;
 
-    return res.status(200).json({ message: "Magic link sent" });
-  } catch (err) {
-    return res.status(500).json({ error: "Failed", details: err });
-  }
-};
+    console.log(`🔢 Current OTP attempts for ${phoneNo}:`, attemptCount);
 
-export const signUpUser = async (req: Request, res: Response) => {
-  try {
-    const { email, name, phone_no, course, college } = req.body;
+    // 3. If attempts exceeded
+    if (attemptCount >= 3) {
+      const ttlSeconds = await redisClient.ttl(redisKey);
 
-    if (!email || !phone_no || !name) {
-      return res.status(400).json({
-        error: "email, phone_no, and name are required",
+      console.log(`⏳ TTL remaining (seconds):`, ttlSeconds);
+
+      const retryAt = new Date(Date.now() + ttlSeconds * 1000);
+
+      console.log(`🚫 OTP blocked until:`, retryAt);
+
+      return res.status(429).json({
+        success: false,
+        UImessage: `You have used up all of your three attempts to receive OTP. Try again after ${retryAt.toLocaleString()}.`,
       });
     }
 
-    const existing = await prisma.customer.findFirst({
-      where: {
-        OR: [{ email }, { phone_no }],
-      },
+    // 4. Increment attempt count
+    const newAttemptCount = attemptCount + 1;
+
+    if (attemptCount === 0) {
+      // First attempt → set value with 24h expiry
+      await redisClient.set(redisKey, String(newAttemptCount), {
+        EX: 60 * 60 * 24,
+      });
+      console.log("🧠 First OTP attempt stored, TTL set to 24 hours");
+    } else {
+      // Subsequent attempts → just increment
+      await redisClient.incr(redisKey);
+      console.log("🧠 OTP attempt incremented");
+    }
+
+    // 5. Send OTP using MSG91
+    console.log("📤 Sending OTP via MSG91...");
+    const sendOtpResponse:any = await OTPWidget.sendOTP({
+      identifier: phoneNo,
     });
 
-    if (existing) {
+    console.log("📨 MSG91 response:", sendOtpResponse);
+
+    if (sendOtpResponse.type === "error") {
+      console.log("❌ MSG91 failed to send OTP");
       return res.status(400).json({
-        error: "User already exists with this email or phone number",
+        success: false,
+        UImessage: sendOtpResponse.message,
       });
     }
 
-    const user = await prisma.customer.create({
-      data: {
-        email,
-        phone_no,
-        name,
-        course: course || null,
-        college: college || null,
-      },
-    });
+    console.log("✅ OTP sent successfully");
 
-    const { data, error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: Global.emailRedirectTo,
-      },
+    return res.status(200).json({
+      success: true,
+      UImessage: "OTP sent successfully",
+      reqId: sendOtpResponse.message, // useful for verify API
+      phoneNo,
     });
-
-    if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    return res.status(201).json({
-      message: "User created. Magic link sent to email.",
-      user,
-    });
-  } catch (err) {
+  } catch (error) {
+    console.error("🔥 sendOtp failed:", error);
     return res.status(500).json({
-      error: "Failed to sign up user",
-      details: err instanceof Error ? err.message : err,
+      success: false,
+      UImessage: "Server error while sending OTP",
     });
   }
 };
 
+
+//validate-otp and identify new or old user endpoint controller - to be completed by vishal
+
+//this endpoint will take the user otp and phone number from the frontend and check wether the otp matches in the redis!(the above endpoint will store the otp and phone no in the redis)
+//if his number cannot be found in the redis db then he the otp has expired and send the appropriate response to the frontend: {phoneNo:"XXXXX-XXXXX", message: "You took too long! OTP expired"}
+//if his otp does not match then also send an appropriate response to the frontend: {phoneNo:"XXXXX-XXXXX", message: "OTP does not match!"}
+//if it matches then it will check wether the user already exists in the db
+//if new user it will send the message to the frontend that it is a new user with his phoneNo verified and redirect him to signup/form-data page: {phoneNo:"XXXXX-XXXXX", message: "OTP matched successfully!!", user_type: "new user"}
+//if old user then backend will generate his jwt tokens (access + refresh) and send it to the frontend so that the frontend can then redirect him to his dashboard: {phoneNo:"XXXXX-XXXXX", message: "OTP matched successfully!!", user_type: "old user", tokens:{access: "xxxxxxxxxxxxxxx", refresh: "xxxxxxxxxxxxxxxxxx"}}
+//remember to handle checkpoints!
+
+//handle new-user data endpoint controller - to be assigned yet!
+
+//will get all the user details along with the phone number we send in the above endpoint!
+//and store it in supabase database
+//and send his tokens along with a success message!
+
+// Get Orders of User
 export const getUserOrders = async (req: Request, res: Response) => {
   try {
     const email = req.email;
