@@ -3,67 +3,7 @@ import { generateAccessToken, generateRefreshToken } from "../services/jwtServic
 import prisma from "../config/prisma_client.js";
 import redisClient from "../config/redisClient.js";
 import OTPWidget from "../config/msg91_client.js";
-
-/**
- * HELPER: Internal logic to trigger OTP send via MSG91
- * Returns a result object instead of handling the response directly.
- */
-const triggerOtpSend = async (phoneNo: string) => {
-  try {
-    // 1. Validation (Basic 10 digit check)
-    if (!phoneNo || !/^[0-9]{10}$/.test(phoneNo)) {
-      return { 
-        success: false, 
-        status: 400, 
-        message: "Invalid phone number. Please provide a 10-digit number." 
-      };
-    }
-
-    // 2. Rate Limiting (Using Redis)
-    const redisKey = `otp:limit:${phoneNo}`;
-    const attemptCountStr = await redisClient.get(redisKey);
-    const attemptCount: number = attemptCountStr ? parseInt(attemptCountStr.toString(), 10) : 0;
-
-    if (attemptCount >= 3) { 
-      const ttlSeconds = await redisClient.ttl(redisKey);
-      const retryAt = new Date(Date.now() + ((ttlSeconds as number) * 1000));
-      return {
-        success: false,
-        status: 429,
-        message: `Max attempts reached. Please try again after ${retryAt.toLocaleTimeString()}.`,
-      };
-    }
-
-    // 3. Send OTP
-    const fullPhoneNo = phoneNo.startsWith("91") ? phoneNo : `91${phoneNo}`;
-    const response: any = await OTPWidget.sendOTP({ identifier: fullPhoneNo });
-
-    if (response.type === "error") {
-      return {
-        success: false,
-        status: 400,
-        message: response.message || "Failed to send OTP.",
-      };
-    }
-
-    // 4. Update Rate Limit Counter
-    if (attemptCount === 0) {
-      await redisClient.set(redisKey, "1", { EX: 60 * 30 }); // 30 mins window
-    } else {
-      await redisClient.incr(redisKey);
-    }
-
-    return {
-      success: true,
-      status: 200,
-      message: "OTP sent successfully",
-      reqId: response.message,
-    };
-  } catch (error: any) {
-    console.error("🔥 triggerOtpSend Error:", error.message);
-    return { success: false, status: 500, message: "Server error while sending OTP" };
-  }
-};
+import { triggerAuthOtpSend } from "../services/otpService.js";
 
 /**
  * @desc    STEP 1: Send OTP to user's phone number
@@ -74,7 +14,7 @@ export const sendOtp = async (req: Request, res: Response) => {
   const { phoneNo } = req.body;
   console.log("📥 Generic OTP Request for:", phoneNo);
   
-  const result = await triggerOtpSend(phoneNo);
+  const result = await triggerAuthOtpSend(phoneNo);
   return res.status(result.status).json({
     success: result.success,
     UImessage: result.message,
@@ -114,7 +54,8 @@ export const verifyOtp = async (req: Request, res: Response) => {
 
     if (customer) {
       // --- LOGIC: LOGIN (Existing User) ---
-      const payload = {
+      const payload: any = {
+        role: 'customer',
         customer_id: customer.customer_id,
         phone_no: customer.phone_no,
         email: customer.email,
@@ -155,7 +96,8 @@ export const verifyOtp = async (req: Request, res: Response) => {
         // Delete temp data from Redis
         await redisClient.del(redisKey);
 
-        const payload = {
+        const payload: any = {
+          role: 'customer',
           customer_id: newUser.customer_id,
           phone_no: newUser.phone_no,
           email: newUser.email,
@@ -216,7 +158,7 @@ export const signUpUser = async (req: Request, res: Response) => {
 
     // 2. Send OTP First
     console.log("📥 Signup OTP Request for:", phoneNo);
-    const result = await triggerOtpSend(phoneNo);
+    const result = await triggerAuthOtpSend(phoneNo);
 
     if (!result.success) {
       return res.status(result.status).json({ success: false, UImessage: result.message });
@@ -331,7 +273,9 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     // Generate new access token with same payload
     const newAccessToken = generateAccessToken({
+      role: decoded.role as any,
       customer_id: decoded.customer_id,
+      store_id: decoded.store_id,
       phone_no: decoded.phone_no,
       email: decoded.email,
       course: decoded.course,
@@ -411,7 +355,7 @@ export const loginUser = async (req: Request, res: Response) => {
 
     // 2. If user exists, send OTP
     console.log("📥 Login OTP Request for:", phone_no);
-    const result = await triggerOtpSend(phone_no);
+    const result = await triggerAuthOtpSend(phone_no);
 
     return res.status(result.status).json({
       success: result.success,

@@ -6,12 +6,14 @@ dotenv.config();
 // Types
 // -------------------
 export interface JwtPayload {
-  customer_id: number;
+  role: 'customer' | 'store';
+  customer_id?: number;
+  store_id?: number;
   phone_no: string;
-  email: string;
-  course: string | null;
-  college: string | null;
+  email?: string;
   name: string;
+  course?: string | null;
+  college?: string | null;
 }
 
 // -------------------

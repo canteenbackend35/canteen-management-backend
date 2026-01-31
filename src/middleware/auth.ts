@@ -28,11 +28,13 @@ export async function auth(req: Request, res: Response, next: NextFunction) {
     }
 
     // Attach decoded user info to request
+    req.role = decoded.role;
     req.email = decoded.email;
     req.phone_no = decoded.phone_no;
     req.customer_id = decoded.customer_id;
+    req.store_id = decoded.store_id;
     
-    console.log("👤 User authenticated:", req.phone_no);
+    console.log(`👤 ${decoded.role} authenticated:`, req.phone_no);
     next();
     
   } catch (err: any) {

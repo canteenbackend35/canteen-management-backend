@@ -1,11 +1,18 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
-import { generateOtp } from "../utils/generateOtp.js";
+import { generateNumericOtp } from "../services/otpService.js";
 
 // Create order
 export const createOrder = async (req: Request, res: Response) => {
   try {
     const { customer_id, store_id, payment_id, items } = req.body;
+
+    // Use current authenticated user if possible
+    const effectiveCustomerId = req.customer_id || customer_id;
+    
+    if (!effectiveCustomerId) {
+      return res.status(400).json({ success: false, UImessage: "Customer ID is required." });
+    }
 
     // Calculate total price
     let total_price = 0;
@@ -23,7 +30,7 @@ export const createOrder = async (req: Request, res: Response) => {
     }
 
     // Generate secure 4-digit OTP for this order (in-app only, not sent via MSG91)
-    const order_otp = generateOtp(4);
+    const order_otp = generateNumericOtp(4);
     console.log(`🔢 Generated Order OTP: ${order_otp} (Display this on user frontend)`);
     
     // Create order
@@ -32,7 +39,7 @@ export const createOrder = async (req: Request, res: Response) => {
         total_price,
         payment_id,
         order_otp,
-        customer: { connect: { customer_id } },
+        customer: { connect: { customer_id: effectiveCustomerId } },
         store: { connect: { store_id } },
       },
     });
@@ -53,7 +60,6 @@ export const createOrder = async (req: Request, res: Response) => {
       success: true,
       UImessage: "Order placed successfully!",
       order: { ...order, items },
-      // OTP should be displayed on user's frontend for store verification
       order_otp 
     });
   } catch (err) {
