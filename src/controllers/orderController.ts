@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../config/prisma_client.js";
+import { generateOtp } from "../utils/generateOtp.js";
 
 // Create order
 export const createOrder = async (req: Request, res: Response) => {
@@ -21,8 +22,11 @@ export const createOrder = async (req: Request, res: Response) => {
       total_price += menuItem.price * i.quantity;
     }
 
+    // Generate secure 4-digit OTP for this order (in-app only, not sent via MSG91)
+    const order_otp = generateOtp(4);
+    console.log(`🔢 Generated Order OTP: ${order_otp} (Display this on user frontend)`);
+    
     // Create order
-    const order_otp = "12345";
     const order = await prisma.order.create({
       data: {
         total_price,
@@ -44,10 +48,17 @@ export const createOrder = async (req: Request, res: Response) => {
       });
     }
 
-    res.status(201).json({ ...order, items });
+    console.log(`✅ Order created successfully - ID: ${order.order_id}, OTP: ${order_otp}`);
+    res.status(201).json({ 
+      success: true,
+      UImessage: "Order placed successfully!",
+      order: { ...order, items },
+      // OTP should be displayed on user's frontend for store verification
+      order_otp 
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to create order", details: err });
+    console.error("🔥 createOrder Error:", err);
+    res.status(500).json({ success: false, UImessage: "Failed to create order", details: err });
   }
 };
 
@@ -78,5 +89,108 @@ export const getOrderStatus = async (req: Request, res: Response) => {
     res
       .status(500)
       .json({ error: "Failed to fetch order status", details: err });
+  }
+};
+
+/**
+ * @desc    Verify order with OTP (Store Frontend)
+ * @route   POST /orders/:orderId/verify
+ * @access  Public (Store verifies customer's OTP)
+ */
+export const verifyOrder = async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.orderId!, 10);
+    const { order_otp } = req.body;
+
+    console.log(`🔍 Verifying order #${orderId} with OTP...`);
+
+    if (!order_otp) {
+      return res.status(400).json({ success: false, UImessage: "OTP is required" });
+    }
+
+    // Fetch order from database
+    const order = await prisma.order.findUnique({
+      where: { order_id: orderId },
+    });
+
+    if (!order) {
+      console.log(`❌ Order #${orderId} not found`);
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    // Verify OTP
+    if (order.order_otp !== order_otp.toString()) {
+      console.log(`❌ Invalid OTP for order #${orderId}`);
+      return res.status(400).json({ success: false, UImessage: "Invalid OTP" });
+    }
+
+    // Update order status to CONFIRMED
+    const updatedOrder = await prisma.order.update({
+      where: { order_id: orderId },
+      data: { order_status: "CONFIRMED" },
+    });
+
+    console.log(`✅ Order #${orderId} verified successfully!`);
+    res.json({ 
+      success: true, 
+      UImessage: "Order verified successfully!",
+      order: updatedOrder 
+    });
+  } catch (err) {
+    console.error("🔥 verifyOrder Error:", err);
+    res.status(500).json({ success: false, UImessage: "Failed to verify order", details: err });
+  }
+};
+
+/**
+ * @desc    Mark order as completed (Store only)
+ * @route   PATCH /orders/:orderId/complete
+ * @access  Public (Should be protected with store auth in production)
+ */
+export const completeOrder = async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.orderId!, 10);
+
+    console.log(`📦 Marking order #${orderId} as completed...`);
+
+    const order = await prisma.order.findUnique({
+      where: { order_id: orderId },
+    });
+
+    if (!order) {
+      console.log(`❌ Order #${orderId} not found`);
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    // Check if order is in a valid state to be completed
+    if (order.order_status === "CANCELLED") {
+      return res.status(400).json({ 
+        success: false, 
+        UImessage: "Cannot complete a cancelled order" 
+      });
+    }
+
+    if (order.order_status === "DELIVERED") {
+      return res.status(400).json({ 
+        success: false, 
+        UImessage: "Order already completed" 
+      });
+    }
+
+    // Update order status to DELIVERED (completed)
+    const completedOrder = await prisma.order.update({
+      where: { order_id: orderId },
+      data: { order_status: "DELIVERED" },
+    });
+
+    console.log(`✅ Order #${orderId} marked as completed!`);
+    res.json({ 
+      success: true, 
+      UImessage: "Order completed successfully!",
+      order: completedOrder 
+    });
+  } catch (err) {
+    console.error("🔥 completeOrder Error:", err);
+    res.status(500).json({ success: false, UImessage: "Failed to complete order", details: err });
   }
 };

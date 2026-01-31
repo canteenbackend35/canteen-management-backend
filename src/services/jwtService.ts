@@ -8,12 +8,9 @@ dotenv.config();
 export interface JwtPayload {
   customer_id: number;
   phone_no: string;
+  email: string;
   course: string | null;
   college: string | null;
-  name: string;
-}
-
-export interface JwtPayload {
   name: string;
 }
 
@@ -29,7 +26,7 @@ const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN!;
 // Token generation
 // -------------------
 function signToken(payload: JwtPayload, secret: string, expiresIn: string) {
-  return jwt.sign(payload, secret, { expiresIn });
+  return jwt.sign(payload, secret, { expiresIn: expiresIn as any });
 }
 
 export const generateAccessToken = (payload: JwtPayload) =>

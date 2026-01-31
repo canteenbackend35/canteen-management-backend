@@ -1,34 +1,45 @@
-import { log } from "console";
-import { supabase } from "../config/supabaseClient.js";
+import { Request, Response, NextFunction } from "express";
+import { verifyAccessToken } from "../services/jwtService.js";
 
-export async function auth(req, res, next) {
+/**
+ * Middleware to authenticate users using JWT Access Token
+ */
+export async function auth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
-    console.log(authHeader);
-    if (!authHeader) {
-      console.log("No auth header");
-      return res.status(401).json({ error: "Missing Authorization header" });
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.log("❌ Authentication failed: Missing or invalid Authorization header");
+      return res.status(401).json({ 
+        success: false, 
+        UImessage: "Please log in to access this resource." 
+      });
     }
 
     const token = authHeader.split(" ")[1];
-    if (!token) {
-      console.log("No token found in auth header");
-      return res.status(401).json({ error: "Token missing" });
+    const decoded = verifyAccessToken(token);
+
+    if (!decoded) {
+      console.log("❌ Authentication failed: Token is invalid or expired");
+      return res.status(401).json({ 
+        success: false, 
+        UImessage: "Session expired. Please log in again." 
+      });
     }
 
-    const { data, error } = await supabase.auth.getUser(token);
-
-    if (error || !data?.user) {
-      console.log("Invalid token or user not found", error);
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-
-    req.user = data.user; // attach authenticated user
-    req.email = data.user.email;
-    log("Authenticated user email:", req.email);
+    // Attach decoded user info to request
+    req.email = decoded.email;
+    req.phone_no = decoded.phone_no;
+    req.customer_id = decoded.customer_id;
+    
+    console.log("👤 User authenticated:", req.phone_no);
     next();
-  } catch (err) {
-    console.error("Auth middleware error:", err);
-    return res.status(500).json({ error: "Server authentication error" });
+    
+  } catch (err: any) {
+    console.error("🔥 Auth middleware error:", err.message);
+    return res.status(500).json({ 
+      success: false, 
+      UImessage: "An error occurred during authentication." 
+    });
   }
 }

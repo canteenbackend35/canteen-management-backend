@@ -1,143 +1,427 @@
 import { Request, Response } from "express";
+import { generateAccessToken, generateRefreshToken } from "../services/jwtService.js";
 import prisma from "../config/prisma_client.js";
 import redisClient from "../config/redisClient.js";
 import OTPWidget from "../config/msg91_client.js";
 
-//send otp endpoint controller - to be completed by ayush
-
-//will generate and send the otp via SMS
-//will store the OTP and the corresponding phone number in the redis for checking later and set its expiry to 2 mins
-//send message to the frontend {phoneNo:"XXXXX-XXXXX", message: "OTP successfully sent!"}
-
-export const sendOtp = async (req: Request, res: Response) => {
+/**
+ * HELPER: Internal logic to trigger OTP send via MSG91
+ * Returns a result object instead of handling the response directly.
+ */
+const triggerOtpSend = async (phoneNo: string) => {
   try {
-    const { phoneNo } = req.body;
-    console.log("📥 Incoming sendOtp request for:", phoneNo);
-
-    // 1. Validate phone number
+    // 1. Validation (Basic 10 digit check)
     if (!phoneNo || !/^[0-9]{10}$/.test(phoneNo)) {
-      console.log("❌ Invalid phone number");
-      return res
-        .status(400)
-        .json({ success: false, UImessage: "Invalid phone number" });
+      return { 
+        success: false, 
+        status: 400, 
+        message: "Invalid phone number. Please provide a 10-digit number." 
+      };
     }
 
-    const redisKey = `otp:attempts:${phoneNo}`;
-
-    // 2. Check current attempt count
+    // 2. Rate Limiting (Using Redis)
+    const redisKey = `otp:limit:${phoneNo}`;
     const attemptCountStr = await redisClient.get(redisKey);
-    const attemptCount = attemptCountStr ? Number(attemptCountStr) : 0;
+    const attemptCount: number = attemptCountStr ? parseInt(attemptCountStr.toString(), 10) : 0;
 
-    console.log(`🔢 Current OTP attempts for ${phoneNo}:`, attemptCount);
-
-    // 3. If attempts exceeded
-    if (attemptCount >= 3) {
+    if (attemptCount >= 3) { 
       const ttlSeconds = await redisClient.ttl(redisKey);
-
-      console.log(`⏳ TTL remaining (seconds):`, ttlSeconds);
-
-      const retryAt = new Date(Date.now() + ttlSeconds * 1000);
-
-      console.log(`🚫 OTP blocked until:`, retryAt);
-
-      return res.status(429).json({
+      const retryAt = new Date(Date.now() + ((ttlSeconds as number) * 1000));
+      return {
         success: false,
-        UImessage: `You have used up all of your three attempts to receive OTP. Try again after ${retryAt.toLocaleString()}.`,
-      });
+        status: 429,
+        message: `Max attempts reached. Please try again after ${retryAt.toLocaleTimeString()}.`,
+      };
     }
 
-    // 4. Increment attempt count
-    const newAttemptCount = attemptCount + 1;
+    // 3. Send OTP
+    const fullPhoneNo = phoneNo.startsWith("91") ? phoneNo : `91${phoneNo}`;
+    const response: any = await OTPWidget.sendOTP({ identifier: fullPhoneNo });
 
+    if (response.type === "error") {
+      return {
+        success: false,
+        status: 400,
+        message: response.message || "Failed to send OTP.",
+      };
+    }
+
+    // 4. Update Rate Limit Counter
     if (attemptCount === 0) {
-      // First attempt → set value with 24h expiry
-      await redisClient.set(redisKey, String(newAttemptCount), {
-        EX: 60 * 60 * 24,
-      });
-      console.log("🧠 First OTP attempt stored, TTL set to 24 hours");
+      await redisClient.set(redisKey, "1", { EX: 60 * 30 }); // 30 mins window
     } else {
-      // Subsequent attempts → just increment
       await redisClient.incr(redisKey);
-      console.log("🧠 OTP attempt incremented");
     }
 
-    // 5. Send OTP using MSG91
-    console.log("📤 Sending OTP via MSG91...");
-    const sendOtpResponse:any = await OTPWidget.sendOTP({
-      identifier: phoneNo,
-    });
+    return {
+      success: true,
+      status: 200,
+      message: "OTP sent successfully",
+      reqId: response.message,
+    };
+  } catch (error: any) {
+    console.error("🔥 triggerOtpSend Error:", error.message);
+    return { success: false, status: 500, message: "Server error while sending OTP" };
+  }
+};
 
-    console.log("📨 MSG91 response:", sendOtpResponse);
+/**
+ * @desc    STEP 1: Send OTP to user's phone number
+ * @route   POST /users/send-otp
+ * @access  Public
+ */
+export const sendOtp = async (req: Request, res: Response) => {
+  const { phoneNo } = req.body;
+  console.log("📥 Generic OTP Request for:", phoneNo);
+  
+  const result = await triggerOtpSend(phoneNo);
+  return res.status(result.status).json({
+    success: result.success,
+    UImessage: result.message,
+    reqId: result.reqId,
+    phoneNo,
+  });
+};
 
-    if (sendOtpResponse.type === "error") {
-      console.log("❌ MSG91 failed to send OTP");
-      return res.status(400).json({
-        success: false,
-        UImessage: sendOtpResponse.message,
+/**
+ * @desc    STEP 2: Verify OTP and Perform Login or Redirect to Signup
+ * @route   POST /users/verify-otp
+ * @access  Public
+ */
+export const verifyOtp = async (req: Request, res: Response) => {
+  try {
+    const { phoneNo, otp, reqId } = req.body;
+
+    if (!phoneNo || !otp || !reqId) {
+      return res.status(400).json({ success: false, UImessage: "Missing required fields." });
+    }
+
+    // 1. Verify OTP with Provider
+    const verifyResponse: any = await OTPWidget.verifyOTP({ otp, reqId });
+
+    if (verifyResponse.type === "error") {
+      return res.status(400).json({ 
+        success: false, 
+        UImessage: verifyResponse.message || "OTP verification failed." 
       });
     }
 
-    console.log("✅ OTP sent successfully");
+    // 2. Clear Rate Limits on Success
+    await redisClient.del(`otp:limit:${phoneNo}`);
+
+    // 3. User Identification (Login or New User)
+    const customer = await prisma.customer.findUnique({ where: { phone_no: phoneNo } });
+
+    if (customer) {
+      // --- LOGIC: LOGIN (Existing User) ---
+      const payload = {
+        customer_id: customer.customer_id,
+        phone_no: customer.phone_no,
+        email: customer.email,
+        course: customer.course,
+        college: customer.college,
+        name: customer.name,
+      };
+
+      return res.status(200).json({
+        success: true,
+        UImessage: "Login successful!",
+        user_type: "old user",
+        user: customer, // Simplified for frontend: user data included here
+        tokens: {
+          access: generateAccessToken(payload),
+          refresh: generateRefreshToken(payload),
+        },
+      });
+    } else {
+      // --- LOGIC: NEW USER (Check for pending signup details in Redis) ---
+      const redisKey = `signup:temp:${phoneNo}`;
+      const tempUserDataStr = await redisClient.get(redisKey);
+
+      if (tempUserDataStr) {
+        const tempUser = JSON.parse(tempUserDataStr.toString());
+
+        // Create User from temp data
+        const newUser = await prisma.customer.create({
+          data: {
+            phone_no: tempUser.phone_no,
+            email: tempUser.email,
+            name: tempUser.name,
+            course: tempUser.course || null,
+            college: tempUser.college || null,
+          }
+        });
+
+        // Delete temp data from Redis
+        await redisClient.del(redisKey);
+
+        const payload = {
+          customer_id: newUser.customer_id,
+          phone_no: newUser.phone_no,
+          email: newUser.email,
+          course: newUser.course,
+          college: newUser.college,
+          name: newUser.name,
+        };
+
+        return res.status(201).json({
+          success: true,
+          UImessage: "Registration successful!",
+          user_type: "new user",
+          user: newUser, // Simplified for frontend: user data included here
+          tokens: {
+            access: generateAccessToken(payload),
+            refresh: generateRefreshToken(payload),
+          },
+        });
+      }
+
+      // If no temp data found, just inform that OTP is verified
+      return res.status(200).json({
+        success: true,
+        UImessage: "OTP verified. Please complete your registration.",
+        user_type: "new user",
+        phoneNo,
+      });
+    }
+  } catch (error: any) {
+    console.error("🔥 verifyOtp Error:", error.message);
+    return res.status(500).json({ success: false, UImessage: "Server error while verifying OTP" });
+  }
+};
+
+/**
+ * @desc    STEP 3: Register a New User (Signup) - Step 1: Validate and Send OTP
+ * @route   POST /users/signup
+ * @access  Public
+ */
+export const signUpUser = async (req: Request, res: Response) => {
+  try {
+    const { phoneNo, email, name, course, college } = req.body;
+    
+    if (!phoneNo || !email || !name) {
+      return res.status(400).json({ success: false, UImessage: "Phone, Email, and Name are required." });
+    }
+
+    // 1. Ensure phone number and email uniqueness
+    const existingPhoneNo = await prisma.customer.findUnique({ where: { phone_no: phoneNo } });
+    if (existingPhoneNo) {
+      return res.status(400).json({ success: false, UImessage: "Phone number already exists." });
+    }
+
+    const existingEmail = await prisma.customer.findUnique({ where: { email } });
+    if (existingEmail) {
+      return res.status(400).json({ success: false, UImessage: "Email already exists." });
+    }
+
+    // 2. Send OTP First
+    console.log("📥 Signup OTP Request for:", phoneNo);
+    const result = await triggerOtpSend(phoneNo);
+
+    if (!result.success) {
+      return res.status(result.status).json({ success: false, UImessage: result.message });
+    }
+
+    // 3. Store details in Redis only if OTP was sent successfully (TTL 10 mins)
+    const redisKey = `signup:temp:${phoneNo}`;
+    const signupData = { phone_no: phoneNo, email, name, course, college };
+    await redisClient.set(redisKey, JSON.stringify(signupData), { EX: 600 });
 
     return res.status(200).json({
       success: true,
-      UImessage: "OTP sent successfully",
-      reqId: sendOtpResponse.message, // useful for verify API
+      UImessage: "OTP sent successfully. Please verify to complete signup.",
+      reqId: result.reqId,
       phoneNo,
     });
-  } catch (error) {
-    console.error("🔥 sendOtp failed:", error);
-    return res.status(500).json({
-      success: false,
-      UImessage: "Server error while sending OTP",
+
+  } catch (error: any) {
+    console.error("🔥 signUpUser Error:", error.message);
+    return res.status(500).json({ success: false, UImessage: "Failed to initiate signup." });
+  }
+};
+
+/**
+ * @desc    Fetch Orders for the logged-in user
+ * @route   GET /users/orders
+ * @access  Private (Requires Auth Token)
+ */
+export const getUserOrders = async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customer_id;
+
+    if (!customerId) {
+      return res.status(401).json({ 
+        success: false, 
+        UImessage: "Authentication failed. Please log in again." 
+      });
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { customer_id: customerId },
+      include: {
+        items: { 
+          include: { 
+            menu_item: {
+              select: {
+                name: true,
+                price: true,
+                status: true
+              }
+            } 
+          } 
+        },
+        store: {
+          select: {
+            store_name: true,
+            phone_no: true
+          }
+        },
+      },
+      orderBy: { order_date: 'desc' }
+    });
+
+    if (orders.length === 0) {
+      return res.status(200).json({
+        success: true,
+        UImessage: "You haven't placed any orders yet.",
+        orders: []
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      UImessage: `Successfully fetched ${orders.length} order(s).`,
+      orders
+    });
+  } catch (error: any) {
+    console.error("🔥 getUserOrders Error:", error.message);
+    return res.status(500).json({ 
+      success: false, 
+      UImessage: "We encountered an error while fetching your orders. Please try again later." 
     });
   }
 };
 
-
-//validate-otp and identify new or old user endpoint controller - to be completed by vishal
-
-//this endpoint will take the user otp and phone number from the frontend and check wether the otp matches in the redis!(the above endpoint will store the otp and phone no in the redis)
-//if his number cannot be found in the redis db then he the otp has expired and send the appropriate response to the frontend: {phoneNo:"XXXXX-XXXXX", message: "You took too long! OTP expired"}
-//if his otp does not match then also send an appropriate response to the frontend: {phoneNo:"XXXXX-XXXXX", message: "OTP does not match!"}
-//if it matches then it will check wether the user already exists in the db
-//if new user it will send the message to the frontend that it is a new user with his phoneNo verified and redirect him to signup/form-data page: {phoneNo:"XXXXX-XXXXX", message: "OTP matched successfully!!", user_type: "new user"}
-//if old user then backend will generate his jwt tokens (access + refresh) and send it to the frontend so that the frontend can then redirect him to his dashboard: {phoneNo:"XXXXX-XXXXX", message: "OTP matched successfully!!", user_type: "old user", tokens:{access: "xxxxxxxxxxxxxxx", refresh: "xxxxxxxxxxxxxxxxxx"}}
-//remember to handle checkpoints!
-
-//handle new-user data endpoint controller - to be assigned yet!
-
-//will get all the user details along with the phone number we send in the above endpoint!
-//and store it in supabase database
-//and send his tokens along with a success message!
-
-// Get Orders of User
-export const getUserOrders = async (req: Request, res: Response) => {
+/**
+ * @desc    Refresh access token using a valid refresh token
+ * @route   POST /users/refresh
+ * @access  Public (Requires valid refresh token)
+ */
+export const refreshToken = async (req: Request, res: Response) => {
   try {
-    const email = req.email;
+    const { refreshToken } = req.body;
+
+    console.log("🔄 Refresh token request received");
+
+    if (!refreshToken) {
+      return res.status(400).json({ success: false, UImessage: "Refresh token is required" });
+    }
+
+    // Verify refresh token
+    const { verifyRefreshToken } = await import("../services/jwtService.js");
+    const decoded = verifyRefreshToken(refreshToken);
+
+    if (!decoded) {
+      console.log("❌ Invalid or expired refresh token");
+      return res.status(401).json({ 
+        success: false, 
+        UImessage: "Invalid or expired refresh token. Please log in again." 
+      });
+    }
+
+    // Generate new access token with same payload
+    const newAccessToken = generateAccessToken({
+      customer_id: decoded.customer_id,
+      phone_no: decoded.phone_no,
+      email: decoded.email,
+      course: decoded.course,
+      college: decoded.college,
+      name: decoded.name,
+    });
+
+    console.log("✅ New access token generated for user:", decoded.email);
+    
+    return res.status(200).json({
+      success: true,
+      UImessage: "Access token refreshed successfully",
+      access_token: newAccessToken,
+    });
+  } catch (error: any) {
+    console.error("🔥 refreshToken Error:", error.message);
+    return res.status(500).json({ success: false, UImessage: "Failed to refresh token" });
+  }
+};
+
+/**
+ * @desc    Get user profile data
+ * @route   GET /users/profile
+ * @access  Private
+ */
+export const getUserProfile = async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customer_id;
+
+    if (!customerId) {
+      return res.status(401).json({ success: false, UImessage: "Authentication failed. Please log in again." });
+    }
 
     const customer = await prisma.customer.findUnique({
-      where: { email },
+      where: { customer_id: customerId },
     });
 
     if (!customer) {
-      return res.status(404).json({ message: "Customer not found" });
+      return res.status(404).json({ success: false, UImessage: "We couldn't find your profile details." });
     }
 
-    const orders = await prisma.order.findMany({
-      where: { customer_id: customer.customer_id },
-      include: {
-        items: {
-          include: {
-            menu_item: true,
-          },
-        },
-        store: true,
-      },
+    return res.status(200).json({
+      success: true,
+      UImessage: "Profile details fetched successfully.",
+      user: customer,
+    });
+  } catch (error: any) {
+    console.error("🔥 getUserProfile Error:", error.message);
+    return res.status(500).json({ success: false, UImessage: "Error fetching profile. Please try again later." });
+  }
+};
+
+/**
+ * @desc    Login Step 1: Check if user exists and Send OTP
+ * @route   POST /users/login
+ * @access  Public
+ */
+export const loginUser = async (req: Request, res: Response) => {
+  try {
+    const { phone_no } = req.body;
+
+    if (!phone_no) {
+      return res.status(400).json({ success: false, UImessage: "Phone number is required" });
+    }
+
+    // 1. Check if user exists
+    const customer = await prisma.customer.findUnique({
+      where: { phone_no },
     });
 
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch orders", details: err });
+    if (!customer) {
+      return res.status(404).json({ 
+        success: false, 
+        UImessage: "This phone number is not registered. Please sign up first." 
+      });
+    }
+
+    // 2. If user exists, send OTP
+    console.log("📥 Login OTP Request for:", phone_no);
+    const result = await triggerOtpSend(phone_no);
+
+    return res.status(result.status).json({
+      success: result.success,
+      UImessage: result.message,
+      reqId: result.reqId,
+      phoneNo: phone_no,
+    });
+
+  } catch (error: any) {
+    console.error("🔥 loginUser Error:", error.message);
+    return res.status(500).json({ success: false, UImessage: "Server error during login" });
   }
 };
