@@ -252,7 +252,11 @@ export const getStoreMenu = async (req: Request, res: Response) => {
 // Get Store Orders
 export const getStoreOrders = async (req: Request, res: Response) => {
   try {
-    const storeId = parseInt(req.params.storeId!, 10);
+    const storeId = req.store_id;
+
+    if (!storeId) {
+      return res.status(401).json({ success: false, UImessage: "Unauthorized." });
+    }
 
     const orders = await prisma.order.findMany({
       where: { store_id: storeId },
@@ -262,8 +266,14 @@ export const getStoreOrders = async (req: Request, res: Response) => {
       },
       orderBy: { order_date: 'desc' }
     });
-    res.json(orders);
+    
+    return res.json({
+      success: true,
+      UImessage: orders.length > 0 ? `Successfully fetched ${orders.length} orders.` : "No orders found.",
+      orders
+    });
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch orders", details: err });
+    console.error("🔥 getStoreOrders Error:", err);
+    return res.status(500).json({ success: false, UImessage: "Failed to fetch orders." });
   }
 };

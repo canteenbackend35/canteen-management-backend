@@ -25,6 +25,6 @@ router.post("/refresh", refreshStoreToken);
 
 // --- PRIVATE ROUTES ---
 router.get("/profile", auth, getStoreProfile);
-router.get("/:storeId/orders", auth, getStoreOrders);
+router.get("/orders", auth, getStoreOrders);
 
 export default router;

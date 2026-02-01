@@ -74,11 +74,29 @@ export const getOrder = async (req: Request, res: Response) => {
     const orderId = parseInt(req.params.orderId!, 10);
     const order = await prisma.order.findUnique({
       where: { order_id: orderId },
+      include: {
+        items: { include: { menu_item: true } },
+        store: true,
+        customer: true,
+      },
     });
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    res.json(order);
+
+    if (!order) {
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    // Security Check: Is this the customer who placed it or the store that received it?
+    const isOwner = req.customer_id === order.customer_id;
+    const isTargetStore = req.store_id === order.store_id;
+
+    if (!isOwner && !isTargetStore) {
+      return res.status(403).json({ success: false, UImessage: "Access denied. You are not authorized to view this order." });
+    }
+
+    return res.json({ success: true, order });
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch order", details: err });
+    console.error("🔥 getOrder Error:", err);
+    return res.status(500).json({ success: false, UImessage: "Failed to fetch order" });
   }
 };
 
@@ -88,115 +106,180 @@ export const getOrderStatus = async (req: Request, res: Response) => {
     const orderId = parseInt(req.params.orderId!, 10);
     const order = await prisma.order.findUnique({
       where: { order_id: orderId },
+      select: { order_status: true, customer_id: true, store_id: true }
     });
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    res.json({ order_status: order.order_status });
+
+    if (!order) {
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    // Security Check
+    if (req.customer_id !== order.customer_id && req.store_id !== order.store_id) {
+      return res.status(403).json({ success: false, UImessage: "Access denied." });
+    }
+
+    return res.json({ success: true, order_status: order.order_status });
   } catch (err) {
-    res
-      .status(500)
-      .json({ error: "Failed to fetch order status", details: err });
+    console.error("🔥 getOrderStatus Error:", err);
+    return res.status(500).json({ success: false, UImessage: "Failed to fetch order status" });
   }
 };
 
 /**
  * @desc    Verify order with OTP (Store Frontend)
  * @route   POST /orders/:orderId/verify
- * @access  Public (Store verifies customer's OTP)
+ * @access  Private (Store verifies customer's OTP)
  */
 export const verifyOrder = async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.orderId!, 10);
     const { order_otp } = req.body;
+    const storeId = req.store_id;
 
-    console.log(`🔍 Verifying order #${orderId} with OTP...`);
+    if (!storeId) {
+      return res.status(401).json({ success: false, UImessage: "Unauthorized. Store identity missing." });
+    }
 
     if (!order_otp) {
       return res.status(400).json({ success: false, UImessage: "OTP is required" });
     }
 
-    // Fetch order from database
     const order = await prisma.order.findUnique({
       where: { order_id: orderId },
     });
 
     if (!order) {
-      console.log(`❌ Order #${orderId} not found`);
       return res.status(404).json({ success: false, UImessage: "Order not found" });
     }
 
-    // Verify OTP
+    // Security Check: Does this order belong to THIS store?
+    if (order.store_id !== storeId) {
+      return res.status(403).json({ success: false, UImessage: "Access denied. This order belongs to another store." });
+    }
+
     if (order.order_otp !== order_otp.toString()) {
-      console.log(`❌ Invalid OTP for order #${orderId}`);
       return res.status(400).json({ success: false, UImessage: "Invalid OTP" });
     }
 
-    // Update order status to CONFIRMED
     const updatedOrder = await prisma.order.update({
       where: { order_id: orderId },
       data: { order_status: "CONFIRMED" },
     });
 
-    console.log(`✅ Order #${orderId} verified successfully!`);
-    res.json({ 
+    return res.json({ 
       success: true, 
       UImessage: "Order verified successfully!",
       order: updatedOrder 
     });
   } catch (err) {
     console.error("🔥 verifyOrder Error:", err);
-    res.status(500).json({ success: false, UImessage: "Failed to verify order", details: err });
+    return res.status(500).json({ success: false, UImessage: "Failed to verify order" });
   }
 };
 
 /**
  * @desc    Mark order as completed (Store only)
  * @route   PATCH /orders/:orderId/complete
- * @access  Public (Should be protected with store auth in production)
+ * @access  Private (Store only)
  */
 export const completeOrder = async (req: Request, res: Response) => {
   try {
     const orderId = parseInt(req.params.orderId!, 10);
+    const storeId = req.store_id;
 
-    console.log(`📦 Marking order #${orderId} as completed...`);
+    if (!storeId) {
+      return res.status(401).json({ success: false, UImessage: "Unauthorized." });
+    }
 
     const order = await prisma.order.findUnique({
       where: { order_id: orderId },
     });
 
     if (!order) {
-      console.log(`❌ Order #${orderId} not found`);
       return res.status(404).json({ success: false, UImessage: "Order not found" });
     }
 
-    // Check if order is in a valid state to be completed
+    // Security Check
+    if (order.store_id !== storeId) {
+      return res.status(403).json({ success: false, UImessage: "Access denied." });
+    }
+
     if (order.order_status === "CANCELLED") {
-      return res.status(400).json({ 
-        success: false, 
-        UImessage: "Cannot complete a cancelled order" 
-      });
+      return res.status(400).json({ success: false, UImessage: "Cannot complete a cancelled order" });
     }
 
     if (order.order_status === "DELIVERED") {
-      return res.status(400).json({ 
-        success: false, 
-        UImessage: "Order already completed" 
-      });
+      return res.status(200).json({ success: true, UImessage: "Order already completed" });
     }
 
-    // Update order status to DELIVERED (completed)
     const completedOrder = await prisma.order.update({
       where: { order_id: orderId },
       data: { order_status: "DELIVERED" },
     });
 
-    console.log(`✅ Order #${orderId} marked as completed!`);
-    res.json({ 
+    return res.json({ 
       success: true, 
       UImessage: "Order completed successfully!",
       order: completedOrder 
     });
   } catch (err) {
     console.error("🔥 completeOrder Error:", err);
-    res.status(500).json({ success: false, UImessage: "Failed to complete order", details: err });
+    return res.status(500).json({ success: false, UImessage: "Failed to complete order" });
+  }
+};
+
+/**
+ * @desc    Cancel an order (Customer or Store)
+ * @route   PATCH /orders/:orderId/cancel
+ * @access  Private
+ */
+export const cancelOrder = async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.orderId!, 10);
+    const { customer_id, store_id } = req;
+
+    const order = await prisma.order.findUnique({
+      where: { order_id: orderId },
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    // Security Check
+    const isOwner = customer_id === order.customer_id;
+    const isTargetStore = store_id === order.store_id;
+
+    if (!isOwner && !isTargetStore) {
+      return res.status(403).json({ success: false, UImessage: "Access denied." });
+    }
+
+    // State Validation
+    if (order.order_status === "DELIVERED") {
+      return res.status(400).json({ success: false, UImessage: "Cannot cancel a completed order." });
+    }
+    
+    if (order.order_status === "CANCELLED") {
+      return res.status(200).json({ success: true, UImessage: "Order is already cancelled." });
+    }
+
+    // Customer can only cancel if PENDING
+    if (isOwner && order.order_status !== "PENDING") {
+      return res.status(400).json({ success: false, UImessage: "Order cannot be cancelled after it has been confirmed by the store." });
+    }
+
+    const cancelledOrder = await prisma.order.update({
+      where: { order_id: orderId },
+      data: { order_status: "CANCELLED" },
+    });
+
+    return res.json({ 
+      success: true, 
+      UImessage: "Order cancelled successfully.",
+      order: cancelledOrder 
+    });
+  } catch (err) {
+    console.error("🔥 cancelOrder Error:", err);
+    return res.status(500).json({ success: false, UImessage: "Failed to cancel order." });
   }
 };
