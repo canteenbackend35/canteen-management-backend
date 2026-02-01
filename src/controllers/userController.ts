@@ -3,6 +3,7 @@ import prisma from "../config/prisma_client.js";
 import redisClient from "../config/redisClient.js";
 import { generateAccessToken, generateRefreshToken } from "../services/jwtService.js";
 import { triggerAuthOtpSend } from "../services/otpService.js";
+import OTPWidget from "../config/msg91_client.js";
 
 /**
  * @desc    STEP 1: Send OTP to user's phone number
@@ -35,31 +36,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, UImessage: "Missing required fields." });
     }
 
-    // 1. Verify OTP with Redis (Development Mock)
-    const verifyKey = `otp:verify:${reqId}`;
-    const storedDataStr = await redisClient.get(verifyKey);
-
-    if (!storedDataStr) {
-      return res.status(400).json({ 
-        success: false, 
-        UImessage: "OTP expired or invalid session ID. Please try again." 
-      });
-    }
-
-    const { phoneNo: storedPhone, otp: storedOtp } = JSON.parse(storedDataStr.toString());
-
-    if (storedPhone !== phoneNo || storedOtp !== otp) {
-      return res.status(400).json({ 
-        success: false, 
-        UImessage: "The OTP or phone number is incorrect." 
-      });
-    }
-
-    // Delete the verification record after successful verify
-    await redisClient.del(verifyKey);
-
-    /*
-    // Commented out MSG91 verification
+    // 1. Verify OTP with Provider
     const verifyResponse: any = await OTPWidget.verifyOTP({ otp, reqId });
 
     if (verifyResponse.type === "error") {
@@ -68,7 +45,6 @@ export const verifyOtp = async (req: Request, res: Response) => {
         UImessage: verifyResponse.message || "OTP verification failed." 
       });
     }
-    */
 
     // 2. Clear Rate Limits on Success
     await redisClient.del(`otp:limit:${phoneNo}`);

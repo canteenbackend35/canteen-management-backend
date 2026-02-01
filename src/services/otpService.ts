@@ -45,23 +45,7 @@ export const triggerAuthOtpSend = async (phoneNo: string) => {
       };
     }
 
-    // 3. DEVELOPMENT MOCK: Generate OTP and reqId locally
-    const otp = generateNumericOtp(6);
-    const reqId = `dev_${Math.random().toString(36).substring(2, 15)}`; 
-
-    // Store for verification in Redis
-    const verifyKey = `otp:verify:${reqId}`;
-    await redisClient.set(verifyKey, JSON.stringify({ phoneNo, otp }), { EX: 600 }); // 10 mins
-
-    console.log("-----------------------------------------");
-    console.log("🛠️  DEVELOPMENT OTP LOG (MSG91 BYPASSED)");
-    console.log(`📱 Phone: ${phoneNo}`);
-    console.log(`🔑 OTP: ${otp}`);
-    console.log(`🆔 reqId: ${reqId}`);
-    console.log("-----------------------------------------");
-
-    /* 
-    // Commented out MSG91 service for development cost saving
+    // 3. Send OTP via MSG91
     const fullPhoneNo = phoneNo.startsWith("91") ? phoneNo : `91${phoneNo}`;
     const response: any = await OTPWidget.sendOTP({ identifier: fullPhoneNo });
 
@@ -72,7 +56,6 @@ export const triggerAuthOtpSend = async (phoneNo: string) => {
         message: response.message || "Failed to send OTP.",
       };
     }
-    */
 
     // 4. Update Rate Limit Counter
     if (attemptCount === 0) {
@@ -84,8 +67,8 @@ export const triggerAuthOtpSend = async (phoneNo: string) => {
     return {
       success: true,
       status: 200,
-      message: "OTP sent successfully (Check console in dev)",
-      reqId: reqId, // Returning our local reqId
+      message: "OTP sent successfully",
+      reqId: response.message, // Returning real MSG91 reqId
     };
   } catch (error: any) {
     console.error("🔥 triggerAuthOtpSend Error:", error.message);
