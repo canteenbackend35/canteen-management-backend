@@ -72,35 +72,55 @@ async function main() {
   const storeList = await prisma.store.findMany();
 
   // ---------------- MENU ITEMS ----------------
+  const storeMenus: { [key: string]: { name: string; price: number }[] } = {
+    "Pizza Hub": [
+      { name: "Margherita Pizza", price: 299 },
+      { name: "Pepperoni Pizza", price: 399 },
+      { name: "Garlic Breadsticks", price: 129 },
+      { name: "Farmhouse Pizza", price: 349 },
+    ],
+    "Burger Town": [
+      { name: "Classic Veg Burger", price: 99 },
+      { name: "Cheese Lava Burger", price: 159 },
+      { name: "French Fries", price: 79 },
+      { name: "Crispy Chicken Burger", price: 189 },
+    ],
+    "Chai & Snacks": [
+      { name: "Masala Chai", price: 25 },
+      { name: "Samosa (2pcs)", price: 40 },
+      { name: "Bread Pakoda", price: 30 },
+      { name: "Cold Coffee", price: 80 },
+    ],
+    "South Indian Delight": [
+      { name: "Masala Dosa", price: 120 },
+      { name: "Idli Sambhar (2pcs)", price: 60 },
+      { name: "Vada (2pcs)", price: 70 },
+      { name: "Onion Uttapam", price: 140 },
+    ],
+    "Healthy Salads": [
+      { name: "Caesar Salad", price: 210 },
+      { name: "Greek Salad", price: 190 },
+      { name: "Fruit Bowl", price: 150 },
+      { name: "Quinoa Bowl", price: 240 },
+    ],
+  };
+
   const menuItemsData: Prisma.MenuItemCreateManyInput[] = [];
 
   for (const store of storeList) {
-    menuItemsData.push(
-      {
+    const items = storeMenus[store.store_name] || [
+      { name: "Standard Meal", price: 150 },
+      { name: "Soft Drink", price: 40 },
+    ];
+
+    for (const item of items) {
+      menuItemsData.push({
         store_id: store.store_id,
-        name: `Item A - ${store.store_name}`,
-        price: 99.5,
+        name: item.name,
+        price: item.price,
         status: "AVAILABLE",
-      },
-      {
-        store_id: store.store_id,
-        name: `Item B - ${store.store_name}`,
-        price: 149.0,
-        status: "AVAILABLE",
-      },
-      {
-        store_id: store.store_id,
-        name: `Item C - ${store.store_name}`,
-        price: 199.99,
-        status: "AVAILABLE",
-      },
-      {
-        store_id: store.store_id,
-        name: `Item D - ${store.store_name}`,
-        price: 79.0,
-        status: "AVAILABLE",
-      }
-    );
+      });
+    }
   }
 
   await prisma.menuItem.createMany({ data: menuItemsData });

@@ -14,7 +14,7 @@ export const generateNumericOtp = (length: number = 6): string => {
 };
 
 /**
- * Handles rate limiting and sending OTP via MSG91 for authentication.
+ * Handles rate limiting and sending OTP (logged to console for development).
  */
 export const triggerAuthOtpSend = async (phoneNo: string) => {
   try {
@@ -27,13 +27,13 @@ export const triggerAuthOtpSend = async (phoneNo: string) => {
       };
     }
 
-    // 2. Rate Limiting (Using Redis)
-    const redisKey = `otp:limit:${phoneNo}`;
-    const attemptCountStr = await redisClient.get(redisKey);
+    // 2. Rate Limiting (Using Redis) - Same as before
+    const limitKey = `otp:limit:${phoneNo}`;
+    const attemptCountStr = await redisClient.get(limitKey);
     const attemptCount: number = attemptCountStr ? parseInt(attemptCountStr.toString(), 10) : 0;
 
     if (attemptCount >= 3) { 
-      const ttlSeconds = await redisClient.ttl(redisKey);
+      const ttlSeconds = await redisClient.ttl(limitKey);
       const retryAtText = (ttlSeconds as number) > 0 
         ? `again after ${new Date(Date.now() + (ttlSeconds as number) * 1000).toLocaleTimeString()}`
         : "again soon";
@@ -45,7 +45,23 @@ export const triggerAuthOtpSend = async (phoneNo: string) => {
       };
     }
 
-    // 3. Send OTP via MSG91
+    // 3. DEVELOPMENT MOCK: Generate OTP and reqId locally
+    const otp = generateNumericOtp(6);
+    const reqId = `dev_${Math.random().toString(36).substring(2, 15)}`; 
+
+    // Store for verification in Redis
+    const verifyKey = `otp:verify:${reqId}`;
+    await redisClient.set(verifyKey, JSON.stringify({ phoneNo, otp }), { EX: 600 }); // 10 mins
+
+    console.log("-----------------------------------------");
+    console.log("🛠️  DEVELOPMENT OTP LOG (MSG91 BYPASSED)");
+    console.log(`📱 Phone: ${phoneNo}`);
+    console.log(`🔑 OTP: ${otp}`);
+    console.log(`🆔 reqId: ${reqId}`);
+    console.log("-----------------------------------------");
+
+    /* 
+    // Commented out MSG91 service for development cost saving
     const fullPhoneNo = phoneNo.startsWith("91") ? phoneNo : `91${phoneNo}`;
     const response: any = await OTPWidget.sendOTP({ identifier: fullPhoneNo });
 
@@ -56,19 +72,20 @@ export const triggerAuthOtpSend = async (phoneNo: string) => {
         message: response.message || "Failed to send OTP.",
       };
     }
+    */
 
     // 4. Update Rate Limit Counter
     if (attemptCount === 0) {
-      await redisClient.set(redisKey, "1", { EX: 60 * 30 }); // 30 mins window
+      await redisClient.set(limitKey, "1", { EX: 60 * 30 }); // 30 mins window
     } else {
-      await redisClient.incr(redisKey);
+      await redisClient.incr(limitKey);
     }
 
     return {
       success: true,
       status: 200,
-      message: "OTP sent successfully",
-      reqId: response.message,
+      message: "OTP sent successfully (Check console in dev)",
+      reqId: reqId, // Returning our local reqId
     };
   } catch (error: any) {
     console.error("🔥 triggerAuthOtpSend Error:", error.message);

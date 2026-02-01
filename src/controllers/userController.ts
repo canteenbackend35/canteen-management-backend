@@ -1,8 +1,7 @@
 import { Request, Response } from "express";
-import { generateAccessToken, generateRefreshToken } from "../services/jwtService.js";
 import prisma from "../config/prisma_client.js";
 import redisClient from "../config/redisClient.js";
-import OTPWidget from "../config/msg91_client.js";
+import { generateAccessToken, generateRefreshToken } from "../services/jwtService.js";
 import { triggerAuthOtpSend } from "../services/otpService.js";
 
 /**
@@ -36,7 +35,31 @@ export const verifyOtp = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, UImessage: "Missing required fields." });
     }
 
-    // 1. Verify OTP with Provider
+    // 1. Verify OTP with Redis (Development Mock)
+    const verifyKey = `otp:verify:${reqId}`;
+    const storedDataStr = await redisClient.get(verifyKey);
+
+    if (!storedDataStr) {
+      return res.status(400).json({ 
+        success: false, 
+        UImessage: "OTP expired or invalid session ID. Please try again." 
+      });
+    }
+
+    const { phoneNo: storedPhone, otp: storedOtp } = JSON.parse(storedDataStr.toString());
+
+    if (storedPhone !== phoneNo || storedOtp !== otp) {
+      return res.status(400).json({ 
+        success: false, 
+        UImessage: "The OTP or phone number is incorrect." 
+      });
+    }
+
+    // Delete the verification record after successful verify
+    await redisClient.del(verifyKey);
+
+    /*
+    // Commented out MSG91 verification
     const verifyResponse: any = await OTPWidget.verifyOTP({ otp, reqId });
 
     if (verifyResponse.type === "error") {
@@ -45,6 +68,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
         UImessage: verifyResponse.message || "OTP verification failed." 
       });
     }
+    */
 
     // 2. Clear Rate Limits on Success
     await redisClient.del(`otp:limit:${phoneNo}`);
@@ -64,15 +88,28 @@ export const verifyOtp = async (req: Request, res: Response) => {
         name: customer.name,
       };
 
+      const accessToken = generateAccessToken(payload);
+      const refreshToken = generateRefreshToken(payload);
+
+      res.cookie("accessToken", accessToken, {
+        httpOnly: true,
+        secure: false, // development
+        sameSite: "lax",
+        maxAge: 15 * 60 * 1000, // 15 mins
+      });
+
+      res.cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
       return res.status(200).json({
         success: true,
         UImessage: "Login successful!",
         user_type: "old user",
-        user: customer, // Simplified for frontend: user data included here
-        tokens: {
-          access: generateAccessToken(payload),
-          refresh: generateRefreshToken(payload),
-        },
+        user: customer,
       });
     } else {
       // --- LOGIC: NEW USER (Check for pending signup details in Redis) ---
@@ -106,16 +143,29 @@ export const verifyOtp = async (req: Request, res: Response) => {
           name: newUser.name,
         };
 
-        return res.status(201).json({
-          success: true,
-          UImessage: "Registration successful!",
-          user_type: "new user",
-          user: newUser, // Simplified for frontend: user data included here
-          tokens: {
-            access: generateAccessToken(payload),
-            refresh: generateRefreshToken(payload),
-          },
-        });
+        const accessToken = generateAccessToken(payload);
+      const refreshToken = generateRefreshToken(payload);
+
+      res.cookie("accessToken", accessToken, {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax",
+        maxAge: 15 * 60 * 1000,
+      });
+
+      res.cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        secure: false,
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      return res.status(201).json({
+        success: true,
+        UImessage: "Registration successful!",
+        user_type: "new user",
+        user: newUser,
+      });
       }
 
       // If no temp data found, just inform that OTP is verified
@@ -251,12 +301,12 @@ export const getUserOrders = async (req: Request, res: Response) => {
  */
 export const refreshToken = async (req: Request, res: Response) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies.refreshToken;
 
-    console.log("🔄 Refresh token request received");
+    console.log("🔄 Refresh token request received via cookies");
 
     if (!refreshToken) {
-      return res.status(400).json({ success: false, UImessage: "Refresh token is required" });
+      return res.status(401).json({ success: false, UImessage: "Refresh token is required" });
     }
 
     // Verify refresh token
@@ -283,12 +333,18 @@ export const refreshToken = async (req: Request, res: Response) => {
       name: decoded.name,
     });
 
-    console.log("✅ New access token generated for user:", decoded.email);
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    console.log("✅ New access token generated and set in cookie");
     
     return res.status(200).json({
       success: true,
       UImessage: "Access token refreshed successfully",
-      access_token: newAccessToken,
     });
   } catch (error: any) {
     console.error("🔥 refreshToken Error:", error.message);

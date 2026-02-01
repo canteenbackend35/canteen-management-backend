@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import { NextFunction, Request, Response } from "express";
 import { verifyAccessToken } from "../services/jwtService.js";
 
 /**
@@ -6,17 +6,16 @@ import { verifyAccessToken } from "../services/jwtService.js";
  */
 export async function auth(req: Request, res: Response, next: NextFunction) {
   try {
-    const authHeader = req.headers.authorization;
+    const token = req.cookies.accessToken || (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.split(" ")[1] : null);
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      console.log("❌ Authentication failed: Missing or invalid Authorization header");
+    if (!token) {
+      console.log("❌ Authentication failed: No token provided in cookies or headers");
       return res.status(401).json({ 
         success: false, 
         UImessage: "Please log in to access this resource." 
       });
     }
 
-    const token = authHeader.split(" ")[1];
     const decoded = verifyAccessToken(token);
 
     if (!decoded) {
