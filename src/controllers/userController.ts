@@ -67,17 +67,19 @@ export const verifyOtp = async (req: Request, res: Response) => {
       const accessToken = generateAccessToken(payload);
       const refreshToken = generateRefreshToken(payload);
 
+      const isProduction = process.env.NODE_ENV === "production";
+
       res.cookie("accessToken", accessToken, {
         httpOnly: true,
-        secure: false, // development
-        sameSite: "lax",
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
         maxAge: 15 * 60 * 1000, // 15 mins
       });
 
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
-        secure: false,
-        sameSite: "lax",
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
 
@@ -122,17 +124,19 @@ export const verifyOtp = async (req: Request, res: Response) => {
         const accessToken = generateAccessToken(payload);
       const refreshToken = generateRefreshToken(payload);
 
+      const isProduction = process.env.NODE_ENV === "production";
+
       res.cookie("accessToken", accessToken, {
         httpOnly: true,
-        secure: false,
-        sameSite: "lax",
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
         maxAge: 15 * 60 * 1000,
       });
 
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
-        secure: false,
-        sameSite: "lax",
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
@@ -309,10 +313,12 @@ export const refreshToken = async (req: Request, res: Response) => {
       name: decoded.name,
     });
 
+    const isProduction = process.env.NODE_ENV === "production";
+
     res.cookie("accessToken", newAccessToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: "lax",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 15 * 60 * 1000,
     });
 
