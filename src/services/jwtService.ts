@@ -9,9 +9,9 @@ export interface JwtPayload {
   role: 'customer' | 'store';
   customer_id?: number;
   store_id?: number;
-  phone_no: string;
+  phone_no?: string;
   email?: string;
-  name: string;
+  name?: string;
   course?: string | null;
   college?: string | null;
 }

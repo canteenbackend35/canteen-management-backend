@@ -50,11 +50,9 @@ export const verifyStoreOtp = async (req: Request, res: Response) => {
     const store = await prisma.store.findUnique({ where: { phone_no: phoneNo } });
 
     if (store) {
-      const payload: any = {
-        role: 'store',
+      const payload = {
+        role: 'store' as const,
         store_id: store.store_id,
-        phone_no: store.phone_no,
-        name: store.store_name,
       };
 
       return res.status(200).json({
@@ -84,11 +82,9 @@ export const verifyStoreOtp = async (req: Request, res: Response) => {
 
         await redisClient.del(redisKey);
 
-        const payload: any = {
-          role: 'store',
+        const payload = {
+          role: 'store' as const,
           store_id: newStore.store_id,
-          phone_no: newStore.phone_no,
-          name: newStore.store_name,
         };
 
         return res.status(201).json({
@@ -197,9 +193,6 @@ export const refreshStoreToken = async (req: Request, res: Response) => {
     const newAccessToken = generateAccessToken({
       role: 'store',
       store_id: decoded.store_id,
-      phone_no: decoded.phone_no,
-      email: decoded.email, // Kept in payload if decoded had it, but payload interface says it's required. 
-      name: decoded.name,
     });
 
     return res.status(200).json({ success: true, UImessage: "Token refreshed", access_token: newAccessToken });
