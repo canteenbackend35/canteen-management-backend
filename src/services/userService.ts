@@ -62,7 +62,7 @@ export const getCustomerOrdersWithDetails = async (customerId: number) => {
             select: {
               name: true,
               price: true,
-              status: true
+              status: true,
             }
           }
         }
