@@ -4,6 +4,7 @@ import redisClient from "../config/redisClient.js";
 import { generateAccessToken, generateRefreshToken } from "../services/jwtService.js";
 import { triggerAuthOtpSend } from "../services/otpService.js";
 import OTPWidget from "../config/msg91_client.js";
+import { Global } from "../config/global.js";
 
 /**
  * @desc    STEP 1: Send OTP to user's phone number
@@ -197,7 +198,7 @@ export const signUpUser = async (req: Request, res: Response) => {
     // 3. Store details in Redis only if OTP was sent successfully (TTL 10 mins)
     const redisKey = `signup:temp:${phoneNo}`;
     const signupData = { phone_no: phoneNo, email, name, course, college };
-    await redisClient.set(redisKey, JSON.stringify(signupData), { EX: 600 });
+    await redisClient.set(redisKey, JSON.stringify(signupData), { EX: Global.signupFormExpireTimeRedis });
 
     return res.status(200).json({
       success: true,

@@ -1,5 +1,6 @@
 import redisClient from "../config/redisClient.js";
 import OTPWidget from "../config/msg91_client.js";
+import { Global } from "../config/global.js";
 
 /**
  * Generates a random numeric OTP of specified length.
@@ -59,7 +60,7 @@ export const triggerAuthOtpSend = async (phoneNo: string) => {
 
     // 4. Update Rate Limit Counter
     if (attemptCount === 0) {
-      await redisClient.set(limitKey, "1", { EX: 60 * 30 }); // 30 mins window
+      await redisClient.set(limitKey, "1", { EX: Global.otpRateLimitExpireRedis }); // 24 hours
     } else {
       await redisClient.incr(limitKey);
     }

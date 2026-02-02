@@ -1,3 +1,4 @@
 export const Global = {
-  emailRedirectTo: "cc://auth/callback",
+  signupFormExpireTimeRedis: 600, //10 mins
+  otpRateLimitExpireRedis: 60 * 60 * 24, //24 hours
 };
