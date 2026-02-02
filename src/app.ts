@@ -6,6 +6,7 @@ import menuRoutes from "./routes/menuRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import storeRoutes from "./routes/storeRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 
 import { requestLogger } from "./middleware/requestLogger.js";
 
@@ -21,6 +22,7 @@ app.use(cookieParser());
 // 🔥 Add this before all routes
 app.use(requestLogger);
 
+app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/stores", storeRoutes);
 app.use("/api/menu", menuRoutes);
