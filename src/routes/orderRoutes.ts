@@ -12,6 +12,7 @@ import {
 } from "../controllers/orderController.js";
 
 import { auth } from "../middleware/auth.js";
+import { isStore, isCustomer } from "../middleware/roleMiddleware.js";
 import { validate } from "../middleware/validateMiddleware.js";
 import { 
   createOrderSchema, 
@@ -20,22 +21,6 @@ import {
 } from "../validators/orderValidator.js";
 
 const router = express.Router();
-
-// Middleware to check if user is a store
-const isStore = (req: any, res: any, next: any) => {
-  if (req.role !== 'store') {
-    return res.status(403).json({ success: false, UImessage: "Access denied. Only stores can perform this action." });
-  }
-  next();
-};
-
-// Middleware to check if user is a customer
-const isCustomer = (req: any, res: any, next: any) => {
-  if (req.role !== 'customer') {
-    return res.status(403).json({ success: false, UImessage: "Access denied. Only customers can perform this action." });
-  }
-  next();
-};
 
 // --- ROUTES ---
 router.post("/", auth, isCustomer, validate(createOrderSchema), createOrder);
@@ -47,6 +32,8 @@ router.post("/:orderId/verify", auth, isStore, validate(verifyOrderSchema), veri
 router.patch("/:orderId/confirm", auth, isStore, validate(orderIdSchema), confirmOrder);
 router.patch("/:orderId/prepare", auth, isStore, validate(orderIdSchema), prepareOrder);
 router.patch("/:orderId/ready", auth, isStore, validate(orderIdSchema), readyOrder);
+// cancelOrder can be accessed by both, but usually verified by store or customer. 
+// Adding roles specifically if needed, but for now keeping it as is or clarifying if it's store only.
 router.patch("/:orderId/complete", auth, isStore, validate(orderIdSchema), completeOrder);
 router.patch("/:orderId/cancel", auth, validate(orderIdSchema), cancelOrder);
 

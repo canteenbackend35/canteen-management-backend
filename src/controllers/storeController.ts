@@ -49,3 +49,28 @@ export const getStoreOrders = asyncHandler(async (req: express.Request, res: exp
     orders
   });
 });
+
+/**
+ * @desc    Update Store Status (OPEN/CLOSED)
+ * @route   PATCH /stores/status
+ * @access  Private (Store only)
+ */
+export const updateStoreStatus = asyncHandler(async (req: express.Request, res: express.Response) => {
+  const storeId = req.store_id;
+  const { status } = req.body;
+
+  if (!storeId) {
+    throw new ApiError(401, "Unauthorized.");
+  }
+
+  const updatedStore = await prisma.store.update({
+    where: { store_id: storeId },
+    data: { status: status as any },
+  });
+
+  return res.json({
+    success: true,
+    UImessage: `Store status updated to ${status}.`,
+    store: updatedStore,
+  });
+});
