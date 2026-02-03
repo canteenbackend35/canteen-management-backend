@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { orderIdParam, otpSchema } from "./common.js";
 
 /**
  * Schema for creating a new order
@@ -20,20 +21,13 @@ export const createOrderSchema = z.object({
 /**
  * Schema for verifying an order with OTP
  */
-export const verifyOrderSchema = z.object({
-  params: z.object({
-    orderId: z.string().regex(/^\d+$/, "Order ID must be a number"),
-  }),
+export const verifyOrderSchema = orderIdParam.extend({
   body: z.object({
-    order_otp: z.string().length(4, "OTP must be exactly 4 digits"),
+    order_otp: otpSchema(4),
   }),
 });
 
 /**
  * Schema for basic order ID operations
  */
-export const orderIdSchema = z.object({
-  params: z.object({
-    orderId: z.string().regex(/^\d+$/, "Order ID must be a number"),
-  }),
-});
+export const orderIdSchema = orderIdParam;

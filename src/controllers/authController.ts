@@ -1,19 +1,36 @@
-import { Request, Response } from "express";
+import express from "express";
 import { generateAccessToken, generateRefreshToken } from "../services/jwtService.js";
 import { triggerAuthOtpSend, verifyAuthOtp } from "../services/otpService.js";
 import { Global } from "../config/global.js";
 import * as UserService from "../services/userService.js";
 import * as StoreService from "../services/storeService.js";
+import { ApiError } from "../utils/ApiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import logger from "../utils/logger.js";
 
 const isProduction = process.env.NODE_ENV === "production";
-const development = process.env.NODE_ENV === "development";
+
+/**
+ * Helper: Finds a user (Customer or Store) based on role and phone number.
+ */
+const findUserByRole = async (role: 'customer' | 'store', phoneNo: string) => {
+  return role === 'customer' 
+    ? await UserService.findCustomerByPhone(phoneNo) 
+    : await StoreService.findStoreByPhone(phoneNo);
+};
 
 /**
  * Helper: Sets Auth Cookies and Sends Response (Role-agnostic)
  */
-const sendAuthResponse = (res: Response, user: any, role: 'customer' | 'store', statusCode: number, message: string, userType: string) => {
+const sendAuthResponse = (
+  res: express.Response, 
+  user: any, 
+  role: 'customer' | 'store', 
+  statusCode: number, 
+  message: string
+) => {
   const payload = {
-    role: role,
+    role,
     customer_id: role === 'customer' ? user.customer_id : undefined,
     store_id: role === 'store' ? user.store_id : undefined,
   };
@@ -27,265 +44,162 @@ const sendAuthResponse = (res: Response, user: any, role: 'customer' | 'store', 
   return res.status(statusCode).json({
     success: true,
     UImessage: message,
-    user_type: userType,
+    user_type: role,
     user,
   });
 };
 
 /**
  * @desc    Send OTP (Unified for both Customer and Store)
- * @route   POST /auth/send-otp
- * @access  Public
+ * @route   POST /api/auth/send-otp
  */
-export const sendOtp = async (req: Request, res: Response) => {
+export const sendOtp = asyncHandler(async (req: express.Request, res: express.Response) => {
   const { phoneNo } = req.body;
-  if (development) console.log("📥 OTP Request for:", phoneNo);
+  logger.debug("📥 OTP Request for: %s", phoneNo);
 
   const result = await triggerAuthOtpSend(phoneNo);
-  return res.status(result.status).json({
-    success: result.success,
+  if (!result.success) {
+    throw new ApiError(result.status, result.message);
+  }
+
+  return res.status(200).json({
+    success: true,
     UImessage: result.message,
     reqId: result.reqId,
     phoneNo,
   });
-};
+});
 
 /**
  * @desc    Verify OTP and Login/Signup (Unified)
- * @route   POST /auth/verify-otp
- * @access  Public
+ * @route   POST /api/auth/verify-otp
  */
-export const verifyOtp = async (req: Request, res: Response) => {
-  try {
-    const { phoneNo, otp, reqId, role } = req.body;
+export const verifyOtp = asyncHandler(async (req: express.Request, res: express.Response) => {
+  const { phoneNo, otp, reqId, role } = req.body;
 
-    if (!phoneNo || !otp || !reqId) {
-      return res.status(400).json({ success: false, UImessage: "Missing required fields." });
-    }
-
-    if (!role || (role !== 'customer' && role !== 'store')) {
-      return res.status(400).json({ success: false, UImessage: "Invalid role. Must be 'customer' or 'store'." });
-    }
-
-    const verifyResult = await verifyAuthOtp(otp, reqId, phoneNo);
-    if (!verifyResult.success) {
-      return res.status(verifyResult.status).json({ success: false, UImessage: verifyResult.message });
-    }
-
-    // Route based on role
-    if (role === 'customer') {
-      const customer = await UserService.findCustomerByPhone(phoneNo);
-      if (customer) {
-        return sendAuthResponse(res, customer, 'customer', 200, "Login successful!", "customer");
-      }
-
-      const newCustomer = await UserService.completeSignupFromTempData(phoneNo);
-      if (newCustomer) {
-        return sendAuthResponse(res, newCustomer, 'customer', 201, "Registration successful!", "customer");
-      }
-
-      return res.status(200).json({
-        success: true,
-        UImessage: "OTP verified. Please complete your registration.",
-        user_type: "customer",
-        phoneNo,
-      });
-    } else {
-      const store = await StoreService.findStoreByPhone(phoneNo);
-      if (store) {
-        return sendAuthResponse(res, store, 'store', 200, "Store login successful!", "store");
-      }
-
-      // const newStore = await StoreService.completeStoreSignupFromTempData(phoneNo);
-      // if (newStore) {
-      //   return sendAuthResponse(res, newStore, 'store', 201, "Store registration successful!", "store");
-      // }
-
-      return res.status(200).json({
-        success: true,
-        UImessage: "OTP verified. Please complete store registration.",
-        user_type: "store",
-        phoneNo,
-      });
-    }
-  } catch (error: any) {
-    console.error("🔥 verifyOtp Error:", error.message);
-    return res.status(500).json({ success: false, UImessage: "Server error while verifying OTP" });
+  const verifyResult = await verifyAuthOtp(otp, reqId, phoneNo);
+  if (!verifyResult.success) {
+    throw new ApiError(verifyResult.status, verifyResult.message);
   }
-};
+
+  // 1. Try to find existing user/store
+  const user = await findUserByRole(role as 'customer' | 'store', phoneNo);
+  if (user) {
+    return sendAuthResponse(res, user, role as 'customer' | 'store', 200, `${role === 'store' ? 'Store login' : 'Login'} successful!`);
+  }
+
+  // 2. If customer exists in temp signup data, complete it
+  if (role === 'customer') {
+    const newCustomer = await UserService.completeSignupFromTempData(phoneNo);
+    if (newCustomer) {
+      return sendAuthResponse(res, newCustomer, 'customer', 201, "Registration successful!");
+    }
+  }
+
+  // 3. Otherwise, OTP is verified but registration info is missing
+  return res.status(200).json({
+    success: true,
+    UImessage: "OTP verified. Please complete your registration.",
+    user_type: role,
+    phoneNo,
+  });
+});
 
 /**
- * @desc    Signup (Unified)
- * @route   POST /auth/signup
- * @access  Public
+ * @desc    Signup (Unified - Currently handles Customer only)
+ * @route   POST /api/auth/signup
  */
-export const signup = async (req: Request, res: Response) => {
-  try {
-    const { phoneNo, role, email, name, course, college, store_name } = req.body;
+export const signup = asyncHandler(async (req: express.Request, res: express.Response) => {
+  const { phoneNo, role, email, name, course, college } = req.body;
 
-    if (!phoneNo || !role) {
-      return res.status(400).json({ success: false, UImessage: "Phone number and role are required." });
-    }
-
-    if (role !== 'customer' && role !== 'store') {
-      return res.status(400).json({ success: false, UImessage: "Invalid role. Must be 'customer' or 'store'." });
-    }
-
-    // Route based on role
-    if (role === 'customer') {
-      if (!email || !name) {
-        return res.status(400).json({ success: false, UImessage: "Email and name are required for customer signup." });
-      }
-
-      const existingCustomer = await UserService.findCustomerByPhone(phoneNo);
-      if (existingCustomer) {
-        return res.status(400).json({ success: false, UImessage: "Phone number already registered." });
-      }
-
-      const result = await triggerAuthOtpSend(phoneNo);
-      if (!result.success) {
-        return res.status(result.status).json({ success: false, UImessage: result.message });
-      }
-
-      await UserService.storeTempSignupData(phoneNo, { phoneNo, email, name, course, college });
-
-      return res.status(200).json({
-        success: true,
-        UImessage: "OTP sent successfully. Please verify to complete signup.",
-        reqId: result.reqId,
-        phoneNo,
-      });
-    } else {
-      return res.status(400).json({ success: false, UImessage: "Store signup is currently disabled." });
-    }
-    // } else {
-    //   if (!store_name) {
-    //     return res.status(400).json({ success: false, UImessage: "Store name is required for store signup." });
-    //   }
-
-    //   const existingStore = await StoreService.findStoreByPhone(phoneNo);
-    //   if (existingStore) {
-    //     return res.status(400).json({ success: false, UImessage: "Phone number already registered." });
-    //   }
-
-    //   const result = await triggerAuthOtpSend(phoneNo);
-    //   if (!result.success) {
-    //     return res.status(result.status).json({ success: false, UImessage: result.message });
-    //   }
-
-    //   await StoreService.storeTempStoreData(phoneNo, { phone_no: phoneNo, store_name });
-
-    //   return res.status(200).json({
-    //     success: true,
-    //     UImessage: "OTP sent. Please verify to complete store signup.",
-    //     reqId: result.reqId,
-    //     phoneNo,
-    //   });
-    // }
-  } catch (error: any) {
-    console.error("🔥 signup Error:", error.message);
-    return res.status(500).json({ success: false, UImessage: "Failed to initiate signup." });
-  }
-};
-
-/**
- * @desc    Login (Unified - checks existence and sends OTP)
- * @route   POST /auth/login
- * @access  Public
- */
-export const login = async (req: Request, res: Response) => {
-  try {
-    const { phoneNo, role } = req.body;
-
-    if (!phoneNo || !role) {
-      return res.status(400).json({ success: false, UImessage: "Phone number and role are required" });
-    }
-
-    if (role !== 'customer' && role !== 'store') {
-      return res.status(400).json({ success: false, UImessage: "Invalid role. Must be 'customer' or 'store'." });
-    }
-
-    // Check existence based on role
-    if (role === 'customer') {
-      const customer = await UserService.findCustomerByPhone(phoneNo);
-      if (!customer) {
-        return res.status(404).json({ success: false, UImessage: "User not registered. Please sign up first." });
-      }
-    } else {
-      const store = await StoreService.findStoreByPhone(phoneNo);
-      if (!store) {
-        return res.status(404).json({ success: false, UImessage: "Store not registered. Please sign up first." });
-      }
-    }
+  if (role === 'customer') {
+    const existingCustomer = await UserService.findCustomerByPhone(phoneNo);
+    if (existingCustomer) throw new ApiError(400, "Phone number already registered.");
 
     const result = await triggerAuthOtpSend(phoneNo);
-    return res.status(result.status).json({
-      success: result.success,
-      UImessage: result.message,
+    if (!result.success) throw new ApiError(result.status, result.message);
+
+    await UserService.storeTempSignupData(phoneNo, { phoneNo, email, name, course, college });
+
+    return res.status(200).json({
+      success: true,
+      UImessage: "OTP sent successfully. Please verify to complete signup.",
       reqId: result.reqId,
       phoneNo,
     });
-  } catch (error: any) {
-    console.error("🔥 login Error:", error.message);
-    return res.status(500).json({ success: false, UImessage: "Server error during login" });
   }
-};
+
+  // Store signup can be enabled here using StoreService.storeTempStoreData
+  throw new ApiError(400, "Store signup is currently disabled via this route.");
+});
 
 /**
- * @desc    Refresh Access Token (Already role-agnostic)
- * @route   POST /auth/refresh
- * @access  Public (Requires valid refresh token in cookie)
+ * @desc    Login (Unified - checks existence and sends OTP)
+ * @route   POST /api/auth/login
  */
-export const refreshToken = async (req: Request, res: Response) => {
-  try {
-    const token = req.cookies.refreshToken;
-    if (!token) return res.status(401).json({ success: false, UImessage: "Refresh token is required" });
+export const login = asyncHandler(async (req: express.Request, res: express.Response) => {
+  const { phoneNo, role } = req.body;
 
-    const { verifyRefreshToken } = await import("../services/jwtService.js");
-    const decoded = verifyRefreshToken(token);
-
-    if (!decoded) return res.status(401).json({ success: false, UImessage: "Invalid or expired refresh token." });
-
-    const newAccessToken = generateAccessToken({
-      role: decoded.role as any,
-      customer_id: decoded.customer_id,
-      store_id: decoded.store_id
-    });
-
-    res.cookie("accessToken", newAccessToken, Global.cookieOptions(isProduction, Global.AcessTokenExpireTime));
-
-    return res.status(200).json({ success: true, UImessage: "Access token refreshed successfully" });
-  } catch (error: any) {
-    console.error("🔥 refreshToken Error:", error.message);
-    return res.status(500).json({ success: false, UImessage: "Failed to refresh token" });
+  const user = await findUserByRole(role as 'customer' | 'store', phoneNo);
+  if (!user) {
+    throw new ApiError(404, `${role === 'store' ? 'Store' : 'User'} not registered. Please sign up first.`);
   }
-};
+
+  const result = await triggerAuthOtpSend(phoneNo);
+  if (!result.success) throw new ApiError(result.status, result.message);
+
+  return res.status(200).json({
+    success: true,
+    UImessage: result.message,
+    reqId: result.reqId,
+    phoneNo,
+  });
+});
 
 /**
- * @desc    Get Current User Profile (Unified)
- * @route   GET /auth/me
- * @access  Private
+ * @desc    Refresh Access Token
+ * @route   POST /api/auth/refresh
  */
-export const getMe = async (req: Request, res: Response) => {
-  try {
-    const { role, customer_id, store_id } = req;
+export const refreshToken = asyncHandler(async (req: express.Request, res: express.Response) => {
+  const token = req.cookies.refreshToken;
+  if (!token) throw new ApiError(401, "Refresh token is required.");
 
-    if (role === "customer" && customer_id) {
-      const customer = await UserService.findCustomerById(customer_id);
-      if (!customer) return res.status(404).json({ success: false, UImessage: "Customer profile not found" });
-      return res.status(200).json({ success: true, role, user: customer });
-    }
+  const { verifyRefreshToken } = await import("../services/jwtService.js");
+  const decoded = verifyRefreshToken(token);
+  if (!decoded) throw new ApiError(401, "Invalid or expired refresh token.");
 
-    if (role === "store" && store_id) {
-      const store = await StoreService.findStoreById(store_id);
-      if (!store) return res.status(404).json({ success: false, UImessage: "Store profile not found" });
-      return res.status(200).json({ success: true, role, user: store });
-    }
+  const newAccessToken = generateAccessToken({
+    role: decoded.role as any,
+    customer_id: decoded.customer_id,
+    store_id: decoded.store_id
+  });
 
-    return res.status(401).json({ success: false, UImessage: "No valid role found in token" });
-  } catch (error: any) {
-    console.error("🔥 getMe Error:", error.message);
-    return res.status(500).json({ success: false, UImessage: "Error fetching profile information" });
+  res.cookie("accessToken", newAccessToken, Global.cookieOptions(isProduction, Global.AcessTokenExpireTime));
+
+  return res.status(200).json({
+    success: true,
+    UImessage: "Access token refreshed successfully."
+  });
+});
+
+/**
+ * @desc    Get Current User Profile
+ * @route   GET /api/auth/me
+ */
+export const getMe = asyncHandler(async (req: express.Request, res: express.Response) => {
+  const { role, customer_id, store_id } = req;
+
+  if (role === "customer" && customer_id) {
+    const customer = await UserService.findCustomerById(customer_id);
+    if (!customer) throw new ApiError(404, "Customer profile not found.");
+    return res.status(200).json({ success: true, role, user: customer , customer });
   }
-};
 
+  if (role === "store" && store_id) {
+    const store = await StoreService.findStoreById(store_id);
+    if (!store) throw new ApiError(404, "Store profile not found.");
+    return res.status(200).json({ success: true, role, user: store , store});
+  }
+
+  throw new ApiError(401, "No valid session found.");
+});

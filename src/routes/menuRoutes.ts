@@ -5,6 +5,8 @@ import {
   deleteMenuItem,
 } from "../controllers/menuController.js";
 import { auth } from "../middleware/auth.js";
+import { validate } from "../middleware/validateMiddleware.js";
+import { addMenuItemSchema, updateMenuItemSchema, menuItemIdSchema } from "../validators/menuValidator.js";
 
 const router = express.Router();
 
@@ -17,8 +19,8 @@ const isStore = (req: any, res: any, next: any) => {
 };
 
 // --- PRIVATE ROUTES (Store Only) ---
-router.post("/", auth, isStore, addMenuItem);
-router.put("/:itemId", auth, isStore, updateMenuItem);
-router.delete("/:itemId", auth, isStore, deleteMenuItem);
+router.post("/", auth, isStore, validate(addMenuItemSchema), addMenuItem);
+router.put("/:itemId", auth, isStore, validate(updateMenuItemSchema), updateMenuItem);
+router.delete("/:itemId", auth, isStore, validate(menuItemIdSchema), deleteMenuItem);
 
 export default router;

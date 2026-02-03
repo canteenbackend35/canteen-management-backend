@@ -14,14 +14,20 @@ import logger from "./utils/logger.js";
 const app = express();
 
 // Use Morgan for HTTP request logging, streaming to Winston
-app.use(morgan("combined", { 
-  stream: { write: (message) => logger.info(message.trim()) } 
-}));
+app.use(
+  morgan(":method :url :status :response-time ms", {
+    stream: {
+      write: msg => logger.info(msg.trim())
+    }
+  })
+);
+
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:8081",
+  origin: process.env.FRONTEND_URL,
   credentials: true
 }));
+
 app.use(express.json());
 app.use(cookieParser());
 

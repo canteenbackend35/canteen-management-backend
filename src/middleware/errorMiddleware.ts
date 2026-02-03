@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { ZodError } from "zod";
 import { ApiError } from "../utils/ApiError.js";
 import logger from "../utils/logger.js";
 
@@ -13,7 +14,15 @@ export const errorMiddleware = (
 ) => {
   let { statusCode, message, UImessage } = err;
 
-  if (!(err instanceof ApiError)) {
+  // Handle Zod Validation Errors
+  if (err instanceof ZodError) {
+    statusCode = 400;
+    message = "Validation Error";
+    UImessage = err.issues
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join(", ");
+  } 
+  else if (!(err instanceof ApiError)) {
     statusCode = err.statusCode || 500;
     message = err.message || "Internal Server Error";
     UImessage = "An unexpected error occurred.";

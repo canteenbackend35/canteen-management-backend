@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import logger from "../utils/logger.js";
 dotenv.config();
 
 // -------------------
@@ -43,8 +44,8 @@ export const generateRefreshToken = (payload: JwtPayload) =>
 function verifyToken(token: string, secret: string): JwtPayload | null {
   try {
     return jwt.verify(token, secret) as JwtPayload;
-  } catch (err) {
-    console.error("Invalid token");
+  } catch (err: any) {
+    logger.warn("Token verification failed: %s", err.message);
     return null;
   }
 }

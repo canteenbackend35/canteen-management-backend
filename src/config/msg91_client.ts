@@ -1,4 +1,5 @@
 import * as sdk from "@msg91comm/sendotp-sdk";
+import logger from "../utils/logger.js";
 
 // The SDK is poorly packaged and may be wrapped incorrectly by different tools
 // We check multiple locations for the OTPWidget class
@@ -10,7 +11,7 @@ const authToken = process.env.MSG91_AUTH_TOKEN;
 if (OTPWidget && typeof OTPWidget.initializeWidget === 'function') {
   OTPWidget.initializeWidget(widgetId, authToken);
 } else {
-  console.error("🔥 Failed to initialize MSG91 OTPWidget: Class not found in SDK bundle.");
+  logger.error("🔥 Failed to initialize MSG91 OTPWidget: Class not found in SDK bundle.");
 }
 
 export default OTPWidget;
