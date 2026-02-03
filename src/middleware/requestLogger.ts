@@ -1,16 +1,13 @@
 import { Request, Response, NextFunction } from "express";
+import logger from "../utils/logger.js";
 
 /**
- * Development request logger middleware
- * Logs incoming requests with method, URL, body, and timestamp
+ * Request logger middleware using Winston
  */
 export const requestLogger = (req: Request, res: Response, next: NextFunction) => {
-  const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-  const token = req.headers.authorization || "NO_TOKEN";
-  const body = req.body;
-
-  console.log(`📌 [${timestamp}] ${req.method} ${req.originalUrl}`);
-  console.log("Body:", body);
-
+  logger.info(`📌 ${req.method} ${req.originalUrl} - IP: ${req.ip}`);
+  if (Object.keys(req.body).length > 0) {
+    logger.debug("Body: %o", req.body);
+  }
   next();
 };

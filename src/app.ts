@@ -8,9 +8,15 @@ import storeRoutes from "./routes/storeRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 
-import { requestLogger } from "./middleware/requestLogger.js";
+import morgan from "morgan";
+import logger from "./utils/logger.js";
 
 const app = express();
+
+// Use Morgan for HTTP request logging, streaming to Winston
+app.use(morgan("combined", { 
+  stream: { write: (message) => logger.info(message.trim()) } 
+}));
 
 app.use(cors({
   origin: process.env.FRONTEND_URL || "http://localhost:8081",
@@ -19,13 +25,15 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-// 🔥 Add this before all routes
-app.use(requestLogger);
-
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/stores", storeRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);
+
+// --- GLOBAL ERROR HANDLER ---
+// 🔥 This MUST be the last middleware
+import { errorMiddleware } from "./middleware/errorMiddleware.js";
+app.use(errorMiddleware);
 
 export default app;

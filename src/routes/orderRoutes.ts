@@ -12,6 +12,12 @@ import {
 } from "../controllers/orderController.js";
 
 import { auth } from "../middleware/auth.js";
+import { validate } from "../middleware/validateMiddleware.js";
+import { 
+  createOrderSchema, 
+  verifyOrderSchema, 
+  orderIdSchema 
+} from "../validators/orderValidator.js";
 
 const router = express.Router();
 
@@ -32,16 +38,16 @@ const isCustomer = (req: any, res: any, next: any) => {
 };
 
 // --- ROUTES ---
-router.post("/", auth, isCustomer, createOrder);
-router.get("/:orderId", auth, getOrder);
-router.get("/:orderId/status", auth, getOrderStatus);
+router.post("/", auth, isCustomer, validate(createOrderSchema), createOrder);
+router.get("/:orderId", auth, validate(orderIdSchema), getOrder);
+router.get("/:orderId/status", auth, validate(orderIdSchema), getOrderStatus);
 
 // Store-only actions
-router.post("/:orderId/verify", auth, isStore, verifyOrder);
-router.patch("/:orderId/confirm", auth, isStore, confirmOrder);
-router.patch("/:orderId/prepare", auth, isStore, prepareOrder);
-router.patch("/:orderId/ready", auth, isStore, readyOrder);
-router.patch("/:orderId/complete", auth, isStore, completeOrder);
-router.patch("/:orderId/cancel", auth, cancelOrder);
+router.post("/:orderId/verify", auth, isStore, validate(verifyOrderSchema), verifyOrder);
+router.patch("/:orderId/confirm", auth, isStore, validate(orderIdSchema), confirmOrder);
+router.patch("/:orderId/prepare", auth, isStore, validate(orderIdSchema), prepareOrder);
+router.patch("/:orderId/ready", auth, isStore, validate(orderIdSchema), readyOrder);
+router.patch("/:orderId/complete", auth, isStore, validate(orderIdSchema), completeOrder);
+router.patch("/:orderId/cancel", auth, validate(orderIdSchema), cancelOrder);
 
 export default router;

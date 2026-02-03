@@ -2,6 +2,8 @@ import express from "express";
 import { sendOtp, verifyOtp, signup, login, refreshToken, getMe } from "../controllers/authController.js";
 import { auth } from "../middleware/auth.js";
 
+import { authLimiter, otpLimiter } from "../middleware/rateLimitMiddleware.js";
+
 const router = express.Router();
 
 /**
@@ -9,11 +11,11 @@ const router = express.Router();
  * Handles both Customer and Store authentication
  */
 
-router.post("/send-otp", sendOtp);
-router.post("/verify-otp", verifyOtp);
-router.post("/signup", signup);
-router.post("/login", login);
-router.post("/refresh", refreshToken);
+router.post("/send-otp", otpLimiter, sendOtp);
+router.post("/verify-otp", otpLimiter, verifyOtp);
+router.post("/signup", authLimiter, signup);
+router.post("/login", authLimiter, login);
+router.post("/refresh", authLimiter, refreshToken);
 router.get("/me", auth, getMe);
 
 export default router;
