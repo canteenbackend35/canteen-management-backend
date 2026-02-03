@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { OrderStatus } from "@prisma/client";
 import prisma from "../config/prisma_client.js";
 import { generateNumericOtp } from "../services/otpService.js";
 
@@ -163,7 +164,7 @@ export const verifyOrder = async (req: Request, res: Response) => {
 
     const updatedOrder = await prisma.order.update({
       where: { order_id: orderId },
-      data: { order_status: "CONFIRMED" },
+      data: { order_status: "DELIVERED" },
     });
 
     return res.json({ 
@@ -174,6 +175,144 @@ export const verifyOrder = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("🔥 verifyOrder Error:", err);
     return res.status(500).json({ success: false, UImessage: "Failed to verify order" });
+  }
+};
+
+/**
+ * @desc    Confirm order without OTP (Store only)
+ * @route   PATCH /orders/:orderId/confirm
+ * @access  Private (Store only)
+ */
+export const confirmOrder = async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.orderId!, 10);
+    const storeId = req.store_id;
+
+    if (!storeId) {
+      return res.status(401).json({ success: false, UImessage: "Unauthorized." });
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { order_id: orderId },
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    if (order.store_id !== storeId) {
+      return res.status(403).json({ success: false, UImessage: "Access denied." });
+    }
+
+    if (order.order_status !== "PENDING") {
+      return res.status(400).json({ success: false, UImessage: "Only pending orders can be confirmed directly." });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { order_id: orderId },
+      data: { order_status: "CONFIRMED" },
+    });
+
+    return res.json({ 
+      success: true, 
+      UImessage: "Order confirmed successfully!",
+      order: updatedOrder 
+    });
+  } catch (err) {
+    console.error("🔥 confirmOrder Error:", err);
+    return res.status(500).json({ success: false, UImessage: "Failed to confirm order" });
+  }
+};
+
+/**
+ * @desc    Start preparing order (Store only)
+ * @route   PATCH /orders/:orderId/prepare
+ * @access  Private (Store only)
+ */
+export const prepareOrder = async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.orderId!, 10);
+    const storeId = req.store_id;
+
+    if (!storeId) {
+      return res.status(401).json({ success: false, UImessage: "Unauthorized." });
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { order_id: orderId },
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    if (order.store_id !== storeId) {
+      return res.status(403).json({ success: false, UImessage: "Access denied." });
+    }
+
+    if (order.order_status !== "CONFIRMED") {
+      return res.status(400).json({ success: false, UImessage: "Order must be confirmed before preparation." });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { order_id: orderId },
+      data: { order_status: OrderStatus.PREPARING },
+    });
+
+    return res.json({ 
+      success: true, 
+      UImessage: "Order is now being prepared!",
+      order: updatedOrder 
+    });
+  } catch (err) {
+    console.error("🔥 prepareOrder Error:", err);
+    return res.status(500).json({ success: false, UImessage: "Failed to update order status" });
+  }
+};
+
+/**
+ * @desc    Mark order as ready for pickup (Store only)
+ * @route   PATCH /orders/:orderId/ready
+ * @access  Private (Store only)
+ */
+export const readyOrder = async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.orderId!, 10);
+    const storeId = req.store_id;
+
+    if (!storeId) {
+      return res.status(401).json({ success: false, UImessage: "Unauthorized." });
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { order_id: orderId },
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, UImessage: "Order not found" });
+    }
+
+    if (order.store_id !== storeId) {
+      return res.status(403).json({ success: false, UImessage: "Access denied." });
+    }
+
+    if (order.order_status !== "PREPARING") {
+      return res.status(400).json({ success: false, UImessage: "Order must be in preparation before marking as ready." });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { order_id: orderId },
+      data: { order_status: OrderStatus.READY },
+    });
+
+    return res.json({ 
+      success: true, 
+      UImessage: "Order is ready for pickup!",
+      order: updatedOrder 
+    });
+  } catch (err) {
+    console.error("🔥 readyOrder Error:", err);
+    return res.status(500).json({ success: false, UImessage: "Failed to update order status" });
   }
 };
 
@@ -210,6 +349,10 @@ export const completeOrder = async (req: Request, res: Response) => {
 
     if (order.order_status === "DELIVERED") {
       return res.status(200).json({ success: true, UImessage: "Order already completed" });
+    }
+
+    if ((order.order_status as string) !== "READY") {
+      return res.status(400).json({ success: false, UImessage: "Order must be marked 'Ready' before completion." });
     }
 
     const completedOrder = await prisma.order.update({

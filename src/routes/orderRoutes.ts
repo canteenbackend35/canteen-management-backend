@@ -4,6 +4,9 @@ import {
   getOrder,
   getOrderStatus,
   verifyOrder,
+  confirmOrder,
+  prepareOrder,
+  readyOrder,
   completeOrder,
   cancelOrder
 } from "../controllers/orderController.js";
@@ -35,6 +38,9 @@ router.get("/:orderId/status", auth, getOrderStatus);
 
 // Store-only actions
 router.post("/:orderId/verify", auth, isStore, verifyOrder);
+router.patch("/:orderId/confirm", auth, isStore, confirmOrder);
+router.patch("/:orderId/prepare", auth, isStore, prepareOrder);
+router.patch("/:orderId/ready", auth, isStore, readyOrder);
 router.patch("/:orderId/complete", auth, isStore, completeOrder);
 router.patch("/:orderId/cancel", auth, cancelOrder);
 
