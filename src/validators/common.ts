@@ -18,19 +18,13 @@ export const otpSchema = (length: number = 4) =>
  * Reusable Param Objects
  */
 export const orderIdParam = z.object({
-  params: z.object({
-    orderId: numericIdSchema,
-  }),
+  orderId: numericIdSchema,
 });
 
 export const itemIdParam = z.object({
-  params: z.object({
-    itemId: numericIdSchema,
-  }),
+  itemId: numericIdSchema,
 });
 
 export const storeIdParam = z.object({
-  params: z.object({
-    storeId: numericIdSchema,
-  }),
+  storeId: numericIdSchema,
 });

@@ -21,7 +21,8 @@ export const createOrderSchema = z.object({
 /**
  * Schema for verifying an order with OTP
  */
-export const verifyOrderSchema = orderIdParam.extend({
+export const verifyOrderSchema = z.object({
+  params: orderIdParam,
   body: z.object({
     order_otp: otpSchema(4),
   }),
@@ -30,4 +31,6 @@ export const verifyOrderSchema = orderIdParam.extend({
 /**
  * Schema for basic order ID operations
  */
-export const orderIdSchema = orderIdParam;
+export const orderIdSchema = z.object({
+  params: orderIdParam,
+});

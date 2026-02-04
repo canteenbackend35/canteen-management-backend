@@ -1,23 +1,23 @@
 import express from "express";
 import {
+  cancelOrder,
+  completeOrder,
+  confirmOrder,
   createOrder,
   getOrder,
   getOrderStatus,
-  verifyOrder,
-  confirmOrder,
   prepareOrder,
   readyOrder,
-  completeOrder,
-  cancelOrder
+  verifyOrder
 } from "../controllers/orderController.js";
 
 import { auth } from "../middleware/auth.js";
-import { isStore, isCustomer } from "../middleware/roleMiddleware.js";
+import { isCustomer, isStore } from "../middleware/roleMiddleware.js";
 import { validate } from "../middleware/validateMiddleware.js";
-import { 
-  createOrderSchema, 
-  verifyOrderSchema, 
-  orderIdSchema 
+import {
+  createOrderSchema,
+  orderIdSchema,
+  verifyOrderSchema
 } from "../validators/orderValidator.js";
 
 const router = express.Router();

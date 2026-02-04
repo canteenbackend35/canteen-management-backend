@@ -7,7 +7,10 @@ import { itemIdParam } from "./common.js";
 const menuItemBodySchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   price: z.coerce.number().positive("Price must be a positive number"),
-  status: z.enum(["available", "unavailable"]).optional(),
+  status: z.preprocess(
+    (val) => (typeof val === "string" ? val.toUpperCase() : val),
+    z.enum(["AVAILABLE", "OUT_OF_STOCK"])
+  ).optional(),
 });
 
 /**
@@ -20,11 +23,14 @@ export const addMenuItemSchema = z.object({
 /**
  * Schema for updating a menu item
  */
-export const updateMenuItemSchema = itemIdParam.extend({
+export const updateMenuItemSchema = z.object({
+  params: itemIdParam,
   body: menuItemBodySchema.partial(),
 });
 
 /**
  * Schema for menu item ID verification
  */
-export const menuItemIdSchema = itemIdParam;
+export const menuItemIdSchema = z.object({
+  params: itemIdParam,
+});

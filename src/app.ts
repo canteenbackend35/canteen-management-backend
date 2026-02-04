@@ -2,14 +2,16 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 
+import authRoutes from "./routes/authRoutes.js";
 import menuRoutes from "./routes/menuRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import storeRoutes from "./routes/storeRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
-import authRoutes from "./routes/authRoutes.js";
 
 import morgan from "morgan";
+import { requestLogger } from "./middleware/requestLogger.js";
 import logger from "./utils/logger.js";
+
 
 const app = express();
 
@@ -24,11 +26,20 @@ app.use(
 
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: (origin, callback) => {
+    // 🔥 Allow mobile apps (no origin) or specific frontend URL
+    if (!origin || origin === process.env.FRONTEND_URL) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true
 }));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(requestLogger);
 app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);

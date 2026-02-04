@@ -4,7 +4,9 @@ import { storeIdParam } from "./common.js";
 /**
  * Schema for basic store ID operations
  */
-export const storeIdSchema = storeIdParam;
+export const storeIdSchema = z.object({
+  params: storeIdParam,
+});
 
 /**
  * Schema for updating store status

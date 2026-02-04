@@ -1,8 +1,10 @@
-import express from "express";
 import { OrderStatus } from "@prisma/client";
+import express from "express";
 import * as OrderService from "../services/orderService.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import logger from "../utils/logger.js";
+
 
 // Create order
 export const createOrder = asyncHandler(async (req: express.Request, res: express.Response) => {
@@ -79,7 +81,7 @@ export const verifyOrder = asyncHandler(async (req: express.Request, res: expres
 export const confirmOrder = asyncHandler(async (req: express.Request, res: express.Response) => {
   const orderId = parseInt(req.params.orderId!, 10);
   const storeId = req.store_id;
-
+  logger.debug(orderId);
   const order = await OrderService.getOrderById(orderId);
   if (!order) throw new ApiError(404, "Order not found");
   if (order.store_id !== storeId) throw new ApiError(403, "Access denied.");
