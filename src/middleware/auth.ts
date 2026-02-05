@@ -8,7 +8,10 @@ import { asyncHandler } from "../utils/asyncHandler.js";
  * Middleware to authenticate users using JWT Access Token
  */
 export const auth = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const token = req.cookies.accessToken || (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.split(" ")[1] : null);
+  const token = 
+    req.cookies.accessToken || 
+    (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.split(" ")[1] : null) ||
+    (req.query.token as string);
 
   if (!token) {
     logger.debug("❌ Authentication failed: No token provided in cookies or headers");

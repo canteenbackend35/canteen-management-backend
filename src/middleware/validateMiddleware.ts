@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { ZodTypeAny } from "zod";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import logger from "../utils/logger.js";
 
 /**
  * Middleware to validate incoming requests against a Zod schema.
@@ -8,7 +9,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
  */
 export const validate = (schema: ZodTypeAny) => {
   return asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-    console.log(`🔍 Validating ${req.method} ${req.url}:`, JSON.stringify({
+    logger.debug(`🔍 Validating ${req.method} ${req.url}:`, JSON.stringify({
       body: req.body,
       params: req.params
     }, null, 2));

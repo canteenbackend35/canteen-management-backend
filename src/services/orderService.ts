@@ -1,7 +1,9 @@
-import prisma from "../config/prisma_client.js";
 import { OrderStatus } from "@prisma/client";
-import { ApiError } from "../utils/ApiError.js";
+import prisma from "../config/prisma_client.js";
 import { generateNumericOtp } from "../services/otpService.js";
+import { ApiError } from "../utils/ApiError.js";
+import logger from "../utils/logger.js";
+import { orderEvents } from "../utils/orderEvents.js";
 
 /**
  * Service to handle all order-related business logic.
@@ -30,8 +32,7 @@ export const createOrder = async (data: { customer_id: number, store_id: number,
 
   const order_otp = generateNumericOtp(4);
 
-  // Use a transaction to ensure atomicity
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.create({
       data: {
         total_price,
@@ -50,8 +51,17 @@ export const createOrder = async (data: { customer_id: number, store_id: number,
       })),
     });
 
-    return { ...order, items };
+    return order;
   });
+
+  const fullOrder = await getOrderById(result.order_id);
+  if (fullOrder) {
+    const eventKey = String(store_id);
+    logger.info(`📢 Emitting newOrder-${eventKey} for Order ${result.order_id}`);
+    orderEvents.emit(`newOrder-${eventKey}`, fullOrder);
+  }
+
+  return fullOrder || result;
 };
 
 export const getOrderById = async (orderId: number) => {
@@ -66,8 +76,21 @@ export const getOrderById = async (orderId: number) => {
 };
 
 export const updateOrderStatus = async (orderId: number, status: OrderStatus) => {
-  return prisma.order.update({
+  const updatedOrder = await prisma.order.update({
     where: { order_id: orderId },
     data: { order_status: status },
   });
+
+  // Emit event for SSE (Customer)
+  orderEvents.emit(`orderUpdate-${orderId}`, updatedOrder.order_status);
+
+  // Emit event for SSE (Store Dashboard Sync)
+  const eventKey = String(updatedOrder.store_id);
+  logger.info(`📢 Emitting orderUpdate-${eventKey} for Order ${orderId}`);
+  orderEvents.emit(`orderUpdate-${eventKey}`, {
+    order_id: updatedOrder.order_id,
+    order_status: updatedOrder.order_status
+  });
+
+  return updatedOrder;
 };

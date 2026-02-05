@@ -11,9 +11,9 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction) =
   const hasBody = req.body && Object.keys(req.body).length > 0;
   
   if (hasBody) {
-    logger.info(`📦 Body: ${JSON.stringify(req.body, null, 2)}`);
+    logger.debug(`📦 Body: ${JSON.stringify(req.body, null, 2)}`);
   } else if (["POST", "PUT", "PATCH"].includes(req.method)) {
-    logger.info("📦 Body: (empty)");
+    logger.debug("📦 Body: (empty)");
   }
 
   next();

@@ -3,6 +3,8 @@ import prisma from "../config/prisma_client.js";
 import * as StoreService from "../services/storeService.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import logger from "../utils/logger.js";
+
 
 /**
  * @desc    List all stores
@@ -26,6 +28,8 @@ export const getStoreMenu = asyncHandler(async (req: express.Request, res: expre
   const menu = await prisma.menuItem.findMany({
     where: { store_id: storeId },
   });
+  
+  logger.debug(`📂 Menu items found for Store ID ${storeId}:`, menu.length);
   res.json(menu);
 });
 
@@ -65,7 +69,7 @@ export const updateStoreStatus = asyncHandler(async (req: express.Request, res: 
 
   const updatedStore = await prisma.store.update({
     where: { store_id: storeId },
-    data: { status: status as any },
+    data: { status: status.toUpperCase() as any },
   });
 
   return res.json({

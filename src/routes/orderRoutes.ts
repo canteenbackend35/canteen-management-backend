@@ -8,7 +8,8 @@ import {
   getOrderStatus,
   prepareOrder,
   readyOrder,
-  verifyOrder
+  verifyOrder,
+  watchOrderStatus
 } from "../controllers/orderController.js";
 
 import { auth } from "../middleware/auth.js";
@@ -26,6 +27,7 @@ const router = express.Router();
 router.post("/", auth, isCustomer, validate(createOrderSchema), createOrder);
 router.get("/:orderId", auth, validate(orderIdSchema), getOrder);
 router.get("/:orderId/status", auth, validate(orderIdSchema), getOrderStatus);
+router.get("/:orderId/watch", auth, validate(orderIdSchema), watchOrderStatus);
 
 // Store-only actions
 router.post("/:orderId/verify", auth, isStore, validate(verifyOrderSchema), verifyOrder);

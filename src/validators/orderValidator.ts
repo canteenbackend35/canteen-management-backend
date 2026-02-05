@@ -6,7 +6,6 @@ import { orderIdParam, otpSchema } from "./common.js";
  */
 export const createOrderSchema = z.object({
   body: z.object({
-    customer_id: z.number().int().positive().optional(),
     store_id: z.number().int().positive(),
     payment_id: z.string().optional(),
     items: z.array(
@@ -24,7 +23,7 @@ export const createOrderSchema = z.object({
 export const verifyOrderSchema = z.object({
   params: orderIdParam,
   body: z.object({
-    order_otp: otpSchema(4),
+    order_otp: otpSchema(),
   }),
 });
 

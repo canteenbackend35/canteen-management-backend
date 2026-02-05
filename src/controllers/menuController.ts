@@ -86,6 +86,15 @@ export const deleteMenuItem = asyncHandler(async (req: express.Request, res: exp
     throw new ApiError(403, "Access denied.");
   }
 
+  // Check if item is linked to any orders (prevents Foreign Key crash)
+  const orderCount = await prisma.orderItem.count({
+    where: { menu_item_id: itemId }
+  });
+
+  if (orderCount > 0) {
+    throw new ApiError(400, "Cannot delete item with order history. Please set it to 'OUT_OF_STOCK' instead.");
+  }
+
   await prisma.menuItem.delete({ where: { menu_item_id: itemId } });
   
   return res.status(200).json({

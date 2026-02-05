@@ -1,6 +1,6 @@
+import { Global } from "../config/global.js";
 import prisma from "../config/prisma_client.js";
 import redisClient from "../config/redisClient.js";
-import { Global } from "../config/global.js";
 
 /**
  * Finds a customer by phone number.
@@ -37,7 +37,7 @@ export const completeSignupFromTempData = async (phoneNo: string) => {
 
   const newUser = await prisma.customer.create({
     data: {
-      phone_no: tempUser.phone_no,
+      phone_no: tempUser.phoneNo,
       email: tempUser.email,
       name: tempUser.name,
       course: tempUser.course || null,

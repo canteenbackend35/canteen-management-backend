@@ -27,14 +27,18 @@ app.use(
 
 app.use(cors({
   origin: (origin, callback) => {
-    // 🔥 Allow mobile apps (no origin) or specific frontend URL
-    if (!origin || origin === process.env.FRONTEND_URL) {
+    const allowedOrigins = [process.env.FRONTEND_URL];
+    // 🔥 If no origin (mobile) or matches allowed list
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Cookie", "Cache-Control", "X-Requested-With"],
+  exposedHeaders: ["Content-Type", "Cache-Control", "Connection", "X-Accel-Buffering"]
 }));
 
 app.use(express.json());

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { phoneSchema, roleSchema } from "./common.js";
+import { otpSchema, phoneSchema, roleSchema } from "./common.js";
 
 /**
  * Schema for sending OTP
@@ -16,7 +16,7 @@ export const sendOtpSchema = z.object({
 export const verifyOtpSchema = z.object({
   body: z.object({
     phoneNo: phoneSchema,
-    otp: z.string().min(4, "OTP is required"),
+    otp: otpSchema(6),
     reqId: z.string().min(1, "Request ID is required"),
     role: roleSchema,
   }),
@@ -39,17 +39,9 @@ export const signupSchema = z.object({
   body: z.object({
     phoneNo: phoneSchema,
     role: roleSchema,
-    email: z.string().email("Invalid email address").optional(),
-    name: z.string().min(2, "Name must be at least 2 characters").optional(),
+    email: z.string().email("Invalid email address"),
+    name: z.string().min(2, "Name must be at least 2 characters"),
     course: z.string().nullable().optional(),
     college: z.string().nullable().optional(),
-  }).refine((data) => {
-    if (data.role === 'customer') {
-      return !!data.email && !!data.name;
-    }
-    return true;
-  }, {
-    message: "Email and name are required for customer signup",
-    path: ["email"],
-  }),
+  })
 });

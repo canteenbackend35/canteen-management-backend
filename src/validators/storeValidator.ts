@@ -13,8 +13,8 @@ export const storeIdSchema = z.object({
  */
 export const updateStoreStatusSchema = z.object({
   body: z.object({
-    status: z.string().refine((val) => val === "OPEN" || val === "CLOSED", {
-      message: "Status must be either OPEN or CLOSED",
+    status: z.string().refine((val) => val === "open" || val === "closed", {
+      message: "Status must be either open or closed",
     }),
   }),
 });

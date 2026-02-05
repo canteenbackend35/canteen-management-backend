@@ -1,9 +1,9 @@
 import express from "express";
+import { Global } from "../config/global.js";
 import { generateAccessToken, generateRefreshToken } from "../services/jwtService.js";
 import { triggerAuthOtpSend, verifyAuthOtp } from "../services/otpService.js";
-import { Global } from "../config/global.js";
-import * as UserService from "../services/userService.js";
 import * as StoreService from "../services/storeService.js";
+import * as UserService from "../services/userService.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import logger from "../utils/logger.js";
